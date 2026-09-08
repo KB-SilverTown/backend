@@ -9,10 +9,8 @@
         <setting name="mapUnderscoreToCamelCase" value="true"/>
     </settings>
 
-    <typeAliases>
-        <!-- 도메인 별칭 예시 -->
-        <typeAlias alias="AuthUserVo" type="com.silvertown.domain.auth.vo.AuthUserVo"/>
-        <typeAlias alias="RefreshTokenVo" type="com.silvertown.domain.auth.vo.RefreshTokenVo"/>
-        <typeAlias alias="UserConsentVo" type="com.silvertown.domain.auth.vo.UserConsentVo"/>
-    </typeAliases>
+    <!--
+        Bootstrap 단계에는 도메인 클래스가 포함되지 않는다.
+        각 도메인 PR은 자신이 추가하는 VO/Mapper와 함께 필요한 typeAlias를 이 위치에 추가한다.
+    -->
 </configuration>
