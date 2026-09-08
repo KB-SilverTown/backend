@@ -23,6 +23,13 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @SuppressWarnings("deprecation")
 public class SecurityConfig extends WebSecurityConfigurerAdapter {
 
+  private static final List<String> FRONTEND_ORIGIN_PATTERNS = List.of(
+      "http://localhost",
+      "http://localhost:*",
+      "https://localhost",
+      "https://localhost:*",
+      "capacitor://localhost");
+
   private final JwtAuthenticationFilter jwtAuthenticationFilter;
   private final RestAuthenticationEntryPoint authenticationEntryPoint;
 
@@ -54,7 +61,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    configuration.setAllowedOrigins(List.of("http://localhost:5173"));
+    configuration.setAllowedOriginPatterns(FRONTEND_ORIGIN_PATTERNS);
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
     configuration.setMaxAge(3600L);

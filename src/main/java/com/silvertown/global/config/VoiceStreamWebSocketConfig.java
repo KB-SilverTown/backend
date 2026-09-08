@@ -10,7 +10,13 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 @Configuration
 @EnableWebSocket
 public class VoiceStreamWebSocketConfig implements WebSocketConfigurer {
-    private static final String FRONTEND_ORIGIN = "http://localhost:5173";
+    private static final String[] FRONTEND_ORIGIN_PATTERNS = {
+            "http://localhost",
+            "http://localhost:*",
+            "https://localhost",
+            "https://localhost:*",
+            "capacitor://localhost"
+    };
 
     private final VoiceStreamWebSocketHandler voiceStreamWebSocketHandler;
 
@@ -21,6 +27,6 @@ public class VoiceStreamWebSocketConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(voiceStreamWebSocketHandler, "/api/voice/sessions/*/stream")
-                .setAllowedOrigins(FRONTEND_ORIGIN);
+                .setAllowedOriginPatterns(FRONTEND_ORIGIN_PATTERNS);
     }
 }
