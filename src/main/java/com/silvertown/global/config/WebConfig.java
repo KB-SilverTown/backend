@@ -17,7 +17,7 @@ import org.springframework.web.filter.DelegatingFilterProxy;
 public class WebConfig extends AbstractAnnotationConfigDispatcherServletInitializer {
 
     // 📍 파일 업로드 설정 상수
-    final String LOCATION = "c:/upload";
+    static final String UPLOAD_TEMP_DIRECTORY = System.getProperty("java.io.tmpdir");
     final long MAX_FILE_SIZE = 1024 * 1024 * 10L;      // 10MB
     final long MAX_REQUEST_SIZE = 1024 * 1024 * 20L;   // 20MB
     final int FILE_SIZE_THRESHOLD = 1024 * 1024 * 5;   // 5MB
@@ -82,7 +82,7 @@ public class WebConfig extends AbstractAnnotationConfigDispatcherServletInitiali
 
         // 📍 다중 파일 업로드 설정
         MultipartConfigElement multipartConfig = new MultipartConfigElement(
-                LOCATION,           // 업로드 처리 디렉토리 경로
+                UPLOAD_TEMP_DIRECTORY, // 운영체제가 제공하는 업로드 처리 디렉토리 경로
                 MAX_FILE_SIZE,      // 업로드 가능한 파일 하나의 최대 크기
                 MAX_REQUEST_SIZE,   // 업로드 가능한 전체 최대 크기(여러 파일 업로드)
                 FILE_SIZE_THRESHOLD // 메모리 파일의 최대 크기(임계값)
