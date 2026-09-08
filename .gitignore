@@ -1,0 +1,65 @@
+.gradle/
+build/
+node_modules/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+.kotlin
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+
+### Environment / secrets ###
+.env
+.env.*
+!.env.example
+/docs
+application-local.properties
+application-secret.properties
+application.properties
+
+### Runtime files ###
+logs/
+*.log
+uploads/
+cache/
+tmp/
+/backup/
+
+### Subagent-driven-development scratch workspace ###
+.superpowers/
+/graphify-out
+
+### local-test files ###
+api-test.http

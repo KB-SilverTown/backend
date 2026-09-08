@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+. "$(dirname "$0")/java-env.sh"
+
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    npm.cmd test
+    ;;
+  *)
+    npm test
+    ;;
+esac
