@@ -27,6 +27,7 @@ import org.springframework.web.socket.server.support.OriginHandshakeInterceptor;
 class VoiceStreamWebSocketConfigTest {
 
     private static final String ALLOWED_ORIGIN = "http://localhost:5173";
+    private static final String CAPACITOR_ORIGIN = "capacitor://localhost";
 
     @Test
     void allowsTheConfirmedFrontendOriginDuringTheWebSocketHandshake() throws Exception {
@@ -53,6 +54,18 @@ class VoiceStreamWebSocketConfigTest {
         assertEquals(HttpStatus.FORBIDDEN.value(), response.getStatus());
     }
 
+    @Test
+    void allowsCapacitorFrontendDuringTheWebSocketHandshake() throws Exception {
+        OriginHandshakeInterceptor interceptor = registeredOriginInterceptor();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertTrue(interceptor.beforeHandshake(
+                requestFrom(CAPACITOR_ORIGIN),
+                new ServletServerHttpResponse(response),
+                mock(WebSocketHandler.class),
+                new HashMap<>()));
+    }
+
     private OriginHandshakeInterceptor registeredOriginInterceptor() throws Exception {
         VoiceStreamWebSocketHandler handler = mock(VoiceStreamWebSocketHandler.class);
         WebSocketHandlerRegistry registry = mock(WebSocketHandlerRegistry.class);
@@ -62,12 +75,14 @@ class VoiceStreamWebSocketConfigTest {
         VoiceStreamWebSocketConfig config = new VoiceStreamWebSocketConfig(handler);
         config.registerWebSocketHandlers(registry);
 
-        ArgumentCaptor<String> originCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String[]> originCaptor = ArgumentCaptor.forClass(String[].class);
         verify(registry).addHandler(handler, "/api/voice/sessions/*/stream");
-        verify(registration).setAllowedOrigins(originCaptor.capture());
+        verify(registration).setAllowedOriginPatterns(originCaptor.capture());
         assertNotNull(originCaptor.getValue());
 
-        return new OriginHandshakeInterceptor(List.of(originCaptor.getValue()));
+        OriginHandshakeInterceptor interceptor = new OriginHandshakeInterceptor(List.of());
+        interceptor.setAllowedOriginPatterns(List.of(originCaptor.getValue()));
+        return interceptor;
     }
 
     private ServletServerHttpRequest requestFrom(String origin) {

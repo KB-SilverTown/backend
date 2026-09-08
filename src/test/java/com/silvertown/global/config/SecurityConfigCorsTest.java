@@ -20,16 +20,25 @@ class SecurityConfigCorsTest {
 
   @Test
   void allowsPreflightFromConfirmedFrontendOrigin() throws Exception {
-    PreflightResult result = processPreflight("http://localhost:5173");
+    PreflightResult result = processPreflight("http://localhost:4173");
 
     assertThat(result.accepted(), is(true));
     assertThat(result.response().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN),
-        is("http://localhost:5173"));
+        is("http://localhost:4173"));
+  }
+
+  @Test
+  void allowsPreflightFromCapacitorFrontend() throws Exception {
+    PreflightResult result = processPreflight("capacitor://localhost");
+
+    assertThat(result.accepted(), is(true));
+    assertThat(result.response().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN),
+        is("capacitor://localhost"));
   }
 
   @Test
   void rejectsPreflightFromUnconfirmedOrigin() throws Exception {
-    PreflightResult result = processPreflight("https://localhost");
+    PreflightResult result = processPreflight("https://untrusted.example");
 
     assertThat(result.accepted(), is(false));
     assertThat(result.response().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN),
