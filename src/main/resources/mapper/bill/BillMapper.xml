@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.bill.mapper.BillMapper">
+    <resultMap id="billResultMap" type="com.silvertown.domain.bill.vo.BillVo">
+        <id property="billId" column="bill_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="payee" column="payee"/>
+        <result property="amount" column="amount"/>
+        <result property="dueDate" column="due_date"/>
+        <result property="paymentReference" column="payment_reference"/>
+        <result property="ocrConfidence" column="ocr_confidence"/>
+        <result property="fieldConfidences" column="field_confidences"/>
+        <result property="status" column="status"/>
+        <result property="confirmationTokenHash" column="confirmation_token_hash"/>
+        <result property="confirmationTokenExpiresAt" column="confirmation_token_expires_at"/>
+        <result property="confirmedAt" column="confirmed_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="monthlyAggregateResultMap"
+            type="com.silvertown.domain.bill.vo.BillMonthlyAggregateVo">
+        <result property="totalAmount" column="total_amount"/>
+        <result property="paidAmount" column="paid_amount"/>
+        <result property="totalCount" column="total_count"/>
+        <result property="paidCount" column="paid_count"/>
+    </resultMap>
+
+    <sql id="billColumns">
+        bill_id, user_id, payee, amount, due_date, payment_reference,
+        ocr_confidence, field_confidences, status,
+        confirmation_token_hash, confirmation_token_expires_at, confirmed_at, created_at, updated_at
+    </sql>
+
+    <select id="existsOwnedVoiceSession" resultType="int">
+        SELECT COUNT(1)
+        FROM voice_sessions
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{voiceSessionId, jdbcType=CHAR}
+    </select>
+
+    <insert id="insert" parameterType="com.silvertown.domain.bill.vo.BillVo">
+        INSERT INTO bills (
+            bill_id, user_id, payee, amount, due_date, payment_reference,
+            ocr_confidence, field_confidences, status
+        ) VALUES (
+            #{billId, jdbcType=CHAR}, #{userId, jdbcType=CHAR}, #{payee, jdbcType=VARCHAR},
+            #{amount}, #{dueDate}, #{paymentReference, jdbcType=VARCHAR},
+            #{ocrConfidence}, #{fieldConfidences, jdbcType=LONGVARCHAR}, #{status}
+        )
+    </insert>
+
+    <select id="findOwnedById" resultMap="billResultMap">
+        SELECT <include refid="billColumns"/>
+        FROM bills
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND bill_id = #{billId, jdbcType=CHAR}
+    </select>
+
+    <select id="findOwnedByIdForUpdate" resultMap="billResultMap">
+        SELECT <include refid="billColumns"/>
+        FROM bills
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND bill_id = #{billId, jdbcType=CHAR}
+        FOR UPDATE
+    </select>
+
+    <select id="findOwnedByCondition" resultMap="billResultMap">
+        SELECT <include refid="billColumns"/>
+        FROM bills
+        WHERE user_id = #{userId, jdbcType=CHAR}
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+        ORDER BY due_date ASC, bill_id ASC
+        LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <select id="countOwnedByCondition" resultType="long">
+        SELECT COUNT(1)
+        FROM bills
+        WHERE user_id = #{userId, jdbcType=CHAR}
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+    </select>
+
+    <select id="summarizeOwnedByDueDateRange" resultMap="monthlyAggregateResultMap">
+        SELECT
+            COALESCE(SUM(amount), 0) AS total_amount,
+            COALESCE(SUM(CASE WHEN status = 'PAID' THEN amount ELSE 0 END), 0) AS paid_amount,
+            COUNT(1) AS total_count,
+            COALESCE(SUM(CASE WHEN status = 'PAID' THEN 1 ELSE 0 END), 0) AS paid_count
+        FROM bills
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND due_date &gt;= #{startDueDate}
+          AND due_date &lt;= #{lastDueDate}
+          AND status NOT IN ('CANCELLED', 'EXPIRED')
+    </select>
+
+    <select id="findOwnedByDueDateRange" resultMap="billResultMap">
+        SELECT <include refid="billColumns"/>
+        FROM bills
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND due_date &gt;= #{startDueDate}
+          AND due_date &lt;= #{lastDueDate}
+          AND status NOT IN ('CANCELLED', 'EXPIRED')
+        ORDER BY due_date ASC, bill_id ASC
+        LIMIT #{size}
+    </select>
+
+    <update id="updateForReconfirm">
+        UPDATE bills
+        SET payee = #{payee, jdbcType=VARCHAR},
+            amount = #{amount},
+            due_date = #{dueDate},
+            status = 'RECONFIRM',
+            confirmation_token_hash = NULL,
+            confirmation_token_expires_at = NULL,
+            confirmed_at = NULL
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND bill_id = #{billId, jdbcType=CHAR}
+          AND status IN ('DRAFT', 'RECONFIRM')
+    </update>
+
+    <update id="cancelForOwner">
+        UPDATE bills
+        SET status = 'CANCELLED',
+            confirmation_token_hash = NULL,
+            confirmation_token_expires_at = NULL
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND bill_id = #{billId, jdbcType=CHAR}
+          AND status IN ('DRAFT', 'RECONFIRM')
+    </update>
+
+    <update id="confirm">
+        UPDATE bills
+        SET status = 'CONFIRMED',
+            confirmation_token_hash = #{confirmationTokenHash},
+            confirmation_token_expires_at = #{confirmationTokenExpiresAt},
+            confirmed_at = #{confirmedAt}
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND bill_id = #{billId, jdbcType=CHAR}
+          AND status IN ('DRAFT', 'RECONFIRM')
+    </update>
+
+    <insert id="insertPayment" parameterType="com.silvertown.domain.bill.vo.BillPaymentVo">
+        INSERT INTO bill_payments (
+            payment_id, bill_id, amount, status, external_payment_id, paid_at
+        ) VALUES (
+            #{paymentId, jdbcType=CHAR}, #{billId, jdbcType=CHAR}, #{amount}, #{status},
+            #{externalPaymentId, jdbcType=VARCHAR}, #{paidAt}
+        )
+    </insert>
+
+    <update id="markPaid">
+        UPDATE bills
+        SET status = 'PAID',
+            confirmation_token_hash = NULL,
+            confirmation_token_expires_at = NULL
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND bill_id = #{billId, jdbcType=CHAR}
+          AND status = 'CONFIRMED'
+    </update>
+</mapper>
