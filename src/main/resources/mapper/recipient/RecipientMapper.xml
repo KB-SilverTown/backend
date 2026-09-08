@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.recipient.mapper.RecipientMapper">
+  <resultMap id="recipientMap" type="com.silvertown.domain.recipient.vo.Recipient">
+    <id property="recipientId" column="recipient_id"/>
+    <result property="displayName" column="display_name"/>
+    <result property="relationship" column="relationship"/>
+    <result property="bankCode" column="bank_code"/>
+    <result property="accountNumberEncrypted" column="account_number_enc"/>
+    <result property="source" column="source"/>
+    <result property="lastUsedAt" column="last_used_at"/>
+  </resultMap>
+  <select id="findCandidates" resultMap="recipientMap">
+    SELECT recipient_id, display_name, relationship, bank_code,
+           account_number_enc, source, last_used_at
+    FROM recipients
+    WHERE owner_user_id = #{userId, jdbcType=CHAR}
+      AND (display_name LIKE CONCAT('%', #{keyword}, '%')
+      <if test="contactNames != null and !contactNames.isEmpty()">
+        OR display_name IN
+        <foreach collection="contactNames" item="name" open="(" separator="," close=")">#{name}</foreach>
+      </if>)
+    ORDER BY CASE source WHEN 'CONTACT' THEN 0 WHEN 'HISTORY' THEN 1 ELSE 2 END,
+             last_used_at DESC, display_name ASC, recipient_id ASC
+    LIMIT 20
+  </select>
+  <select id="findOwnedById" resultMap="recipientMap">
+    SELECT recipient_id, display_name, relationship, bank_code,
+           account_number_enc, source, last_used_at
+    FROM recipients
+    WHERE owner_user_id = #{userId, jdbcType=CHAR}
+      AND recipient_id = #{recipientId, jdbcType=CHAR}
+  </select>
+</mapper>
