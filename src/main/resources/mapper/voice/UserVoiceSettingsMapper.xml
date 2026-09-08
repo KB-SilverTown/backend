@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.voice.mapper.UserVoiceSettingsMapper">
+
+    <resultMap id="userVoiceSettingsResultMap" type="com.silvertown.domain.voice.vo.UserVoiceSettingsVo">
+        <id property="userId" column="user_id"/>
+        <result property="voiceName" column="voice_name"/>
+        <result property="speechRateMultiplier" column="speech_rate_multiplier"/>
+        <result property="volumeMultiplier" column="volume_multiplier"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="findByUserId" resultMap="userVoiceSettingsResultMap">
+        SELECT
+            user_id,
+            voice_name,
+            speech_rate_multiplier,
+            volume_multiplier,
+            created_at,
+            updated_at
+        FROM user_voice_settings
+        WHERE user_id = #{userId, jdbcType=CHAR}
+    </select>
+
+    <insert id="upsert" parameterType="com.silvertown.domain.voice.vo.UserVoiceSettingsVo">
+        INSERT INTO user_voice_settings (
+            user_id,
+            voice_name,
+            speech_rate_multiplier,
+            volume_multiplier
+        ) VALUES (
+            #{userId, jdbcType=CHAR},
+            COALESCE(#{voiceName, jdbcType=VARCHAR}, 'ko-KR-JiMinNeural'),
+            COALESCE(#{speechRateMultiplier, jdbcType=DECIMAL}, 1.05),
+            COALESCE(#{volumeMultiplier, jdbcType=DECIMAL}, 1.00)
+        )
+        ON DUPLICATE KEY UPDATE
+            updated_at = CASE
+                WHEN (#{voiceName, jdbcType=VARCHAR} IS NOT NULL AND voice_name &lt;&gt; #{voiceName, jdbcType=VARCHAR})
+                    OR (#{speechRateMultiplier, jdbcType=DECIMAL} IS NOT NULL
+                        AND speech_rate_multiplier &lt;&gt; #{speechRateMultiplier, jdbcType=DECIMAL})
+                    OR (#{volumeMultiplier, jdbcType=DECIMAL} IS NOT NULL
+                        AND volume_multiplier &lt;&gt; #{volumeMultiplier, jdbcType=DECIMAL})
+                THEN CURRENT_TIMESTAMP
+                ELSE updated_at
+            END,
+            voice_name = CASE
+                WHEN #{voiceName, jdbcType=VARCHAR} IS NULL THEN voice_name
+                ELSE #{voiceName, jdbcType=VARCHAR}
+            END,
+            speech_rate_multiplier = CASE
+                WHEN #{speechRateMultiplier, jdbcType=DECIMAL} IS NULL THEN speech_rate_multiplier
+                ELSE #{speechRateMultiplier, jdbcType=DECIMAL}
+            END,
+            volume_multiplier = CASE
+                WHEN #{volumeMultiplier, jdbcType=DECIMAL} IS NULL THEN volume_multiplier
+                ELSE #{volumeMultiplier, jdbcType=DECIMAL}
+            END
+    </insert>
+</mapper>
