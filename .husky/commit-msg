@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    npx.cmd --no -- commitlint --edit "$1"
+    ;;
+  *)
+    npx --no -- commitlint --edit "$1"
+    ;;
+esac

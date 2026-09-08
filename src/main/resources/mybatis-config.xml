@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE configuration
+        PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-config.dtd">
+
+<configuration>
+    <settings>
+        <!-- 언더스코어를 카멜케이스로 자동 변환 -->
+        <setting name="mapUnderscoreToCamelCase" value="true"/>
+    </settings>
+
+    <!--
+        Bootstrap 단계에는 도메인 클래스가 포함되지 않는다.
+        각 도메인 PR은 자신이 추가하는 VO/Mapper와 함께 필요한 typeAlias를 이 위치에 추가한다.
+    -->
+</configuration>
