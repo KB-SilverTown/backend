@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.auth.mapper.AuthMapper">
+  <resultMap id="authUserMap" type="com.silvertown.domain.auth.vo.AuthUserVo">
+    <id property="userId" column="user_id"/>
+    <result property="loginId" column="login_id"/>
+    <result property="passwordHash" column="password_hash"/>
+    <result property="status" column="status"/>
+    <result property="lastLoginAt" column="last_login_at"/>
+    <result property="createdAt" column="created_at"/>
+  </resultMap>
+  <resultMap id="refreshTokenMap" type="com.silvertown.domain.auth.vo.RefreshTokenVo">
+    <id property="refreshTokenId" column="refresh_token_id"/>
+    <result property="userId" column="user_id"/>
+    <result property="tokenHash" column="token_hash"/>
+    <result property="expiresAt" column="expires_at"/>
+    <result property="revokedAt" column="revoked_at"/>
+    <result property="revokedReason" column="revoked_reason"/>
+    <result property="replacedByTokenId" column="replaced_by_token_id"/>
+    <result property="lastUsedAt" column="last_used_at"/>
+    <result property="createdAt" column="created_at"/>
+  </resultMap>
+
+  <select id="findUserByLoginId" resultMap="authUserMap">
+    SELECT user_id, login_id, password_hash, status, last_login_at, created_at
+    FROM users
+    WHERE login_id = #{loginId, jdbcType=VARCHAR}
+  </select>
+
+  <insert id="insertUser">
+    INSERT INTO users (user_id, login_id, password_hash, status, created_at)
+    VALUES (#{userId, jdbcType=CHAR}, #{loginId, jdbcType=VARCHAR},
+            #{passwordHash, jdbcType=VARCHAR}, #{status, jdbcType=VARCHAR},
+            #{createdAt, jdbcType=TIMESTAMP})
+  </insert>
+
+  <insert id="insertUserProfile">
+    INSERT INTO user_profiles (
+      user_id, name, resident_number_enc, resident_number_hash, gender, postal_code,
+      address, detail_address, phone_enc, phone_hash, emergency_contact_phone_enc,
+      emergency_contact_phone_hash, emergency_contact_name, emergency_contact_relationship, created_at
+    ) VALUES (
+      #{userId, jdbcType=CHAR}, #{name, jdbcType=VARCHAR},
+      #{residentNumberEncrypted, jdbcType=VARBINARY}, #{residentNumberHash, jdbcType=CHAR},
+      #{gender, jdbcType=VARCHAR}, #{postalCode, jdbcType=VARCHAR},
+      #{address, jdbcType=VARCHAR}, #{detailAddress, jdbcType=VARCHAR},
+      #{phoneEncrypted, jdbcType=VARBINARY}, #{phoneHash, jdbcType=CHAR},
+      #{emergencyContactPhoneEncrypted, jdbcType=VARBINARY},
+      #{emergencyContactPhoneHash, jdbcType=CHAR},
+      #{emergencyContactName, jdbcType=VARCHAR},
+      #{emergencyContactRelationship, jdbcType=VARCHAR}, #{createdAt, jdbcType=TIMESTAMP}
+    )
+  </insert>
+
+  <insert id="insertUserConsent">
+    INSERT INTO user_consents (
+      consent_id, user_id, consent_type, document_version, required, agreed, agreed_at, created_at
+    ) VALUES (
+      #{consentId, jdbcType=CHAR}, #{userId, jdbcType=CHAR}, #{consentType, jdbcType=VARCHAR},
+      #{documentVersion, jdbcType=VARCHAR}, #{required, jdbcType=BOOLEAN}, #{agreed, jdbcType=BOOLEAN},
+      #{agreedAt, jdbcType=TIMESTAMP}, #{createdAt, jdbcType=TIMESTAMP}
+    )
+  </insert>
+
+  <update id="updateLastLoginAt">
+    UPDATE users
+    SET last_login_at = #{lastLoginAt, jdbcType=TIMESTAMP}
+    WHERE user_id = #{userId, jdbcType=CHAR}
+  </update>
+
+  <insert id="insertRefreshToken">
+    INSERT INTO refresh_tokens (refresh_token_id, user_id, token_hash, expires_at, created_at)
+    VALUES (#{refreshTokenId, jdbcType=CHAR}, #{userId, jdbcType=CHAR},
+            #{tokenHash, jdbcType=CHAR}, #{expiresAt, jdbcType=TIMESTAMP},
+            #{createdAt, jdbcType=TIMESTAMP})
+  </insert>
+
+  <select id="findRefreshTokenByHash" resultMap="refreshTokenMap">
+    SELECT refresh_token_id, user_id, token_hash, expires_at, revoked_at, revoked_reason,
+           replaced_by_token_id, last_used_at, created_at
+    FROM refresh_tokens
+    WHERE token_hash = #{tokenHash, jdbcType=CHAR}
+  </select>
+
+  <update id="revokeRefreshTokenForRotation">
+    UPDATE refresh_tokens
+    SET revoked_at = #{revokedAt, jdbcType=TIMESTAMP},
+        revoked_reason = 'ROTATED',
+        replaced_by_token_id = #{replacedByTokenId, jdbcType=CHAR},
+        last_used_at = #{revokedAt, jdbcType=TIMESTAMP}
+    WHERE refresh_token_id = #{refreshTokenId, jdbcType=CHAR}
+      AND revoked_at IS NULL
+  </update>
+
+  <update id="revokeRefreshTokenForLogout">
+    UPDATE refresh_tokens
+    SET revoked_at = #{revokedAt, jdbcType=TIMESTAMP}, revoked_reason = 'LOGOUT'
+    WHERE token_hash = #{tokenHash, jdbcType=CHAR}
+      AND revoked_at IS NULL
+  </update>
+</mapper>
