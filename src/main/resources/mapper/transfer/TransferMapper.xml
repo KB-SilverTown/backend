@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.transfer.mapper.TransferMapper">
+  <resultMap id="transferMap" type="com.silvertown.domain.transfer.vo.Transfer">
+    <id property="transferId" column="transfer_id"/>
+    <result property="userId" column="user_id"/>
+    <result property="sessionId" column="session_id"/>
+    <result property="fromAccountId" column="from_account_id"/>
+    <result property="recipientId" column="recipient_id"/>
+    <result property="amount" column="amount"/>
+    <result property="status" column="status"/>
+    <result property="currentStep" column="current_step"/>
+    <result property="recognizedAmount" column="recognized_amount"/>
+    <result property="amountCandidates" column="amount_candidates"/>
+    <result property="amountReconfirmRequired" column="amount_reconfirm_required"/>
+    <result property="preparedAt" column="prepared_at"/>
+    <result property="approvedAt" column="approved_at"/>
+    <result property="executedAt" column="executed_at"/>
+    <result property="recipientDisplayName" column="recipient_display_name"/>
+    <result property="recipientBankCode" column="recipient_bank_code"/>
+    <result property="recipientAccountNumberEncrypted" column="recipient_account_number_enc"/>
+  </resultMap>
+  <resultMap id="authenticationMap" type="com.silvertown.domain.transfer.vo.TransferAuthentication">
+    <id property="transferAuthenticationId" column="transfer_authentication_id"/><result property="transferId" column="transfer_id"/>
+    <result property="userId" column="user_id"/><result property="status" column="status"/>
+    <result property="expiresAt" column="expires_at"/><result property="consumedAt" column="consumed_at"/><result property="authenticatedAt" column="authenticated_at"/>
+  </resultMap>
+  <resultMap id="transactionMap" type="com.silvertown.domain.transfer.vo.TransferTransaction">
+    <id property="transactionId" column="transaction_id"/><result property="transferId" column="transfer_id"/><result property="userId" column="user_id"/>
+    <result property="fromAccountId" column="from_account_id"/><result property="recipientId" column="recipient_id"/>
+    <result property="amount" column="amount"/><result property="status" column="status"/><result property="transferredAt" column="transferred_at"/>
+  </resultMap>
+  <resultMap id="guardianVerificationMap" type="com.silvertown.domain.transfer.vo.GuardianVerification">
+    <id property="verificationId" column="verification_id"/>
+    <result property="transferId" column="transfer_id"/><result property="targetPhoneHash" column="target_phone_hash"/>
+    <result property="channel" column="channel"/><result property="status" column="status"/>
+    <result property="verificationCodeHash" column="verification_code_hash"/><result property="attemptCount" column="attempt_count"/>
+    <result property="maxAttempts" column="max_attempts"/><result property="expiresAt" column="expires_at"/>
+    <result property="sentAt" column="sent_at"/><result property="verifiedAt" column="verified_at"/><result property="failedAt" column="failed_at"/>
+  </resultMap>
+  <select id="findOwnedVoiceSessionIdForUpdate" resultType="string">
+    SELECT session_id FROM voice_sessions
+    WHERE user_id = #{userId, jdbcType=CHAR} AND session_id = #{sessionId, jdbcType=CHAR}
+    FOR UPDATE
+  </select>
+  <insert id="insert" parameterType="com.silvertown.domain.transfer.vo.Transfer">
+    INSERT INTO transfers (
+      transfer_id, user_id, session_id, from_account_id, recipient_id, amount,
+      status, current_step, recognized_amount, amount_candidates,
+      amount_reconfirm_required, prepared_at
+    ) VALUES (
+      #{transferId, jdbcType=CHAR}, #{userId, jdbcType=CHAR}, #{sessionId, jdbcType=CHAR},
+      #{fromAccountId, jdbcType=CHAR}, #{recipientId, jdbcType=CHAR}, #{amount},
+      #{status}, #{currentStep}, #{recognizedAmount}, #{amountCandidates},
+      #{amountReconfirmRequired}, #{preparedAt}
+    )
+  </insert>
+  <select id="findOwnedById" resultMap="transferMap">
+    SELECT t.transfer_id, t.user_id, t.session_id, t.from_account_id,
+           t.recipient_id, t.amount, t.status, t.current_step,
+           t.recognized_amount, t.amount_candidates, t.amount_reconfirm_required,
+           t.prepared_at, t.approved_at, t.executed_at,
+           r.display_name AS recipient_display_name, r.bank_code AS recipient_bank_code,
+           r.account_number_enc AS recipient_account_number_enc
+    FROM transfers t
+    JOIN recipients r ON r.owner_user_id = t.user_id AND r.recipient_id = t.recipient_id
+    WHERE t.user_id = #{userId, jdbcType=CHAR}
+      AND t.transfer_id = #{transferId, jdbcType=CHAR}
+  </select>
+  <select id="findOwnedByIdForUpdate" resultMap="transferMap">
+    SELECT t.transfer_id, t.user_id, t.session_id, t.from_account_id,
+           t.recipient_id, t.amount, t.status, t.current_step,
+           t.recognized_amount, t.amount_candidates, t.amount_reconfirm_required,
+           t.prepared_at, t.approved_at, t.executed_at,
+           r.display_name AS recipient_display_name, r.bank_code AS recipient_bank_code,
+           r.account_number_enc AS recipient_account_number_enc
+    FROM transfers t
+    JOIN recipients r ON r.owner_user_id = t.user_id AND r.recipient_id = t.recipient_id
+    WHERE t.user_id = #{userId, jdbcType=CHAR}
+      AND t.transfer_id = #{transferId, jdbcType=CHAR}
+    FOR UPDATE
+  </select>
+  <select id="findOwnedDraftByVoiceSession" resultMap="transferMap">
+    SELECT t.transfer_id, t.user_id, t.session_id, t.from_account_id,
+           t.recipient_id, t.amount, t.status, t.current_step,
+           t.recognized_amount, t.amount_candidates, t.amount_reconfirm_required,
+           t.prepared_at, t.approved_at, t.executed_at,
+           r.display_name AS recipient_display_name, r.bank_code AS recipient_bank_code,
+           r.account_number_enc AS recipient_account_number_enc
+    FROM transfers t
+    JOIN recipients r ON r.owner_user_id = t.user_id AND r.recipient_id = t.recipient_id
+    WHERE t.user_id = #{userId, jdbcType=CHAR}
+      AND t.session_id = #{sessionId, jdbcType=CHAR}
+      AND t.status = 'DRAFT'
+    ORDER BY t.prepared_at DESC, t.transfer_id DESC
+    LIMIT 1
+  </select>
+  <update id="cancelIfExecutable">
+    UPDATE transfers SET status = 'CANCELLED', current_step = 'CANCELLED'
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND transfer_id = #{transferId, jdbcType=CHAR}
+      AND status IN ('DRAFT', 'RECONFIRM', 'CONFIRMED', 'HELD')
+  </update>
+  <update id="cancelUnexecutedIfPending">
+    UPDATE transfers SET status = 'CANCELLED', current_step = 'CANCELLED'
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND transfer_id = #{transferId, jdbcType=CHAR}
+      AND status IN ('DRAFT', 'RECONFIRM')
+  </update>
+  <select id="findLatestAdditionalCheckRequired" resultType="java.lang.Boolean">
+    SELECT additional_check_required
+    FROM transfer_risk_assessments
+    WHERE transfer_id = #{transferId, jdbcType=CHAR}
+    ORDER BY assessed_at DESC, assessment_id DESC
+    LIMIT 1
+  </select>
+  <update id="confirmIfRiskChecked">
+    UPDATE transfers
+    SET status = 'CONFIRMED', current_step = 'AUTHENTICATE', approved_at = CURRENT_TIMESTAMP(6)
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND transfer_id = #{transferId, jdbcType=CHAR}
+      AND status IN ('DRAFT', 'RECONFIRM')
+  </update>
+  <insert id="insertConfirmation" parameterType="com.silvertown.domain.transfer.vo.TransferConfirmation">
+    INSERT INTO transfer_confirmations (
+      confirmation_id, transfer_id, user_id, confirmation_type, approved, confirmation_text, confirmed_at
+    ) VALUES (
+      #{confirmationId, jdbcType=CHAR}, #{transferId, jdbcType=CHAR}, #{userId, jdbcType=CHAR},
+      #{confirmationType}, #{approved}, #{confirmationText}, #{confirmedAt}
+    )
+  </insert>
+  <select id="findPinForUpdate" resultType="com.silvertown.domain.transfer.vo.UserTransferPin">
+    SELECT user_id, pin_hash, failed_attempt_count, locked_until
+    FROM user_transfer_pins
+    WHERE user_id = #{userId, jdbcType=CHAR}
+    FOR UPDATE
+  </select>
+  <insert id="upsertPin">
+    INSERT INTO user_transfer_pins (user_id, pin_hash, failed_attempt_count, locked_until) VALUES (#{userId, jdbcType=CHAR}, #{pinHash}, 0, NULL)
+    ON DUPLICATE KEY UPDATE pin_hash = VALUES(pin_hash), failed_attempt_count = 0, locked_until = NULL
+  </insert>
+  <update id="recordPinFailure">
+    UPDATE user_transfer_pins SET failed_attempt_count = failed_attempt_count + 1, locked_until = CASE WHEN failed_attempt_count + 1 &gt;= 5 THEN #{lockedUntil} ELSE locked_until END WHERE user_id = #{userId, jdbcType=CHAR}
+  </update>
+  <update id="resetPinFailures">UPDATE user_transfer_pins SET failed_attempt_count = 0, locked_until = NULL WHERE user_id = #{userId, jdbcType=CHAR}</update>
+  <update id="expireAuthenticatedAuthentications">UPDATE transfer_authentications SET status = 'EXPIRED' WHERE user_id = #{userId, jdbcType=CHAR} AND transfer_id = #{transferId, jdbcType=CHAR} AND status = 'AUTHENTICATED'</update>
+  <insert id="insertAuthentication" parameterType="com.silvertown.domain.transfer.vo.TransferAuthentication">INSERT INTO transfer_authentications (transfer_authentication_id, transfer_id, user_id, status, expires_at, authenticated_at) VALUES (#{transferAuthenticationId, jdbcType=CHAR}, #{transferId, jdbcType=CHAR}, #{userId, jdbcType=CHAR}, #{status}, #{expiresAt}, #{authenticatedAt})</insert>
+  <select id="findLatestAuthenticationForUpdate" resultMap="authenticationMap">SELECT transfer_authentication_id, transfer_id, user_id, status, expires_at, consumed_at, authenticated_at FROM transfer_authentications WHERE user_id = #{userId, jdbcType=CHAR} AND transfer_id = #{transferId, jdbcType=CHAR} ORDER BY authenticated_at DESC LIMIT 1 FOR UPDATE</select>
+  <update id="consumeAuthentication">UPDATE transfer_authentications SET status = 'CONSUMED', consumed_at = CURRENT_TIMESTAMP(6) WHERE transfer_authentication_id = #{transferAuthenticationId, jdbcType=CHAR} AND status = 'AUTHENTICATED'</update>
+  <select id="findTransactionByIdempotencyKey" resultMap="transactionMap">SELECT tr.transaction_id, tr.transfer_id, tr.user_id, tr.from_account_id, tr.recipient_id, tr.amount, tr.status, tr.transferred_at FROM transactions tr WHERE tr.user_id = #{userId, jdbcType=CHAR} AND tr.idempotency_key = #{idempotencyKey}</select>
+  <insert id="insertTransaction" parameterType="com.silvertown.domain.transfer.vo.TransferTransaction">INSERT INTO transactions (transaction_id, transfer_id, user_id, from_account_id, recipient_id, amount, status, idempotency_key, transferred_at) VALUES (#{transactionId, jdbcType=CHAR}, #{transferId, jdbcType=CHAR}, #{userId, jdbcType=CHAR}, #{fromAccountId, jdbcType=CHAR}, #{recipientId, jdbcType=CHAR}, #{amount}, #{status}, #{idempotencyKey}, #{transferredAt})</insert>
+  <update id="executeIfConfirmed">UPDATE transfers SET status = 'EXECUTED', current_step = 'COMPLETED', executed_at = CURRENT_TIMESTAMP(6) WHERE user_id = #{userId, jdbcType=CHAR} AND transfer_id = #{transferId, jdbcType=CHAR} AND status = 'CONFIRMED'</update>
+  <select id="findEmergencyContactPhoneHash" resultType="String">SELECT emergency_contact_phone_hash FROM user_profiles WHERE user_id = #{userId, jdbcType=CHAR}</select>
+  <select id="countGuardianDeliveryAttempts" resultType="int">
+    SELECT COUNT(1)
+    FROM guardian_verifications
+    WHERE transfer_id = #{transferId, jdbcType=CHAR}
+  </select>
+  <select id="findLatestGuardianDeliveryForUpdate" resultMap="guardianVerificationMap">
+    SELECT verification_id, transfer_id, target_phone_hash, channel, status,
+           verification_code_hash, attempt_count, max_attempts, expires_at,
+           sent_at, verified_at, failed_at
+    FROM guardian_verifications
+    WHERE transfer_id = #{transferId, jdbcType=CHAR}
+    ORDER BY created_at DESC, verification_id DESC
+    LIMIT 1
+    FOR UPDATE
+  </select>
+  <select id="findActiveGuardianVerificationForUpdate" resultMap="guardianVerificationMap">SELECT verification_id, transfer_id, target_phone_hash, channel, status, verification_code_hash, attempt_count, max_attempts, expires_at, sent_at, verified_at, failed_at FROM guardian_verifications WHERE transfer_id = #{transferId, jdbcType=CHAR} AND status = 'SENT' ORDER BY created_at DESC LIMIT 1 FOR UPDATE</select>
+  <select id="findGuardianVerificationForUpdate" resultMap="guardianVerificationMap">SELECT gv.verification_id, gv.transfer_id, gv.target_phone_hash, gv.channel, gv.status, gv.verification_code_hash, gv.attempt_count, gv.max_attempts, gv.expires_at, gv.sent_at, gv.verified_at, gv.failed_at FROM guardian_verifications gv JOIN transfers t ON t.transfer_id = gv.transfer_id WHERE t.user_id = #{userId, jdbcType=CHAR} AND gv.transfer_id = #{transferId, jdbcType=CHAR} AND gv.verification_id = #{verificationId, jdbcType=CHAR} FOR UPDATE</select>
+  <insert id="insertGuardianVerification" parameterType="com.silvertown.domain.transfer.vo.GuardianVerification">INSERT INTO guardian_verifications (verification_id, transfer_id, target_phone_hash, channel, status, verification_code_hash, attempt_count, max_attempts, expires_at, sent_at) VALUES (#{verificationId, jdbcType=CHAR}, #{transferId, jdbcType=CHAR}, #{targetPhoneHash}, #{channel}, #{status}, #{verificationCodeHash}, #{attemptCount}, #{maxAttempts}, #{expiresAt}, #{sentAt})</insert>
+  <update id="incrementGuardianVerificationAttempts">UPDATE guardian_verifications SET attempt_count = attempt_count + 1 WHERE verification_id = #{verificationId, jdbcType=CHAR} AND status = 'SENT'</update>
+  <update id="expireGuardianVerification">UPDATE guardian_verifications SET status = 'EXPIRED' WHERE verification_id = #{verificationId, jdbcType=CHAR} AND status = 'SENT'</update>
+  <update id="failGuardianVerification">UPDATE guardian_verifications SET status = 'FAILED', failed_at = CURRENT_TIMESTAMP(6) WHERE verification_id = #{verificationId, jdbcType=CHAR} AND status = 'SENT'</update>
+  <update id="verifyGuardianVerification">UPDATE guardian_verifications SET status = 'VERIFIED', verified_at = #{verifiedAt} WHERE verification_id = #{verificationId, jdbcType=CHAR} AND status = 'SENT'</update>
+  <update id="reconfirmAfterGuardianVerification">UPDATE transfers SET status = 'RECONFIRM', current_step = 'CONFIRM' WHERE user_id = #{userId, jdbcType=CHAR} AND transfer_id = #{transferId, jdbcType=CHAR} AND status = 'HELD'</update>
+</mapper>

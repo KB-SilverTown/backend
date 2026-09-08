@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.account.mapper.AccountMapper">
+  <resultMap id="bankAccountMap" type="com.silvertown.domain.account.vo.BankAccount">
+    <id property="accountId" column="account_id"/>
+    <result property="bankCode" column="bank_code"/>
+    <result property="accountNumberEncrypted" column="account_number_enc"/>
+    <result property="accountName" column="account_name"/>
+    <result property="balance" column="balance"/>
+    <result property="accountType" column="account_type"/>
+    <result property="active" column="is_active"/>
+    <result property="syncedAt" column="synced_at"/>
+  </resultMap>
+  <select id="findActiveByUserId" resultMap="bankAccountMap">
+    SELECT account_id, bank_code, account_number_enc, account_name, balance,
+           account_type, is_active, synced_at
+    FROM bank_accounts
+    WHERE user_id = #{userId, jdbcType=CHAR} AND is_active = TRUE
+    ORDER BY created_at ASC, account_id ASC
+  </select>
+  <select id="findOwnedActiveById" resultMap="bankAccountMap">
+    SELECT account_id, bank_code, account_number_enc, account_name, balance,
+           account_type, is_active, synced_at
+    FROM bank_accounts
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND account_id = #{accountId, jdbcType=CHAR}
+      AND is_active = TRUE
+  </select>
+  <insert id="insertPrimaryAccount">
+    INSERT INTO bank_accounts (
+      account_id, user_id, bank_code, account_number_enc, account_number_hash, account_name,
+      balance, account_type, is_active, synced_at, created_at
+    ) VALUES (
+      #{accountId, jdbcType=CHAR}, #{userId, jdbcType=CHAR}, #{bankCode, jdbcType=VARCHAR},
+      #{accountNumberEncrypted, jdbcType=VARBINARY}, #{accountNumberHash, jdbcType=CHAR}, '주거래 계좌',
+      0, 'DEPOSIT', TRUE, NULL, #{createdAt, jdbcType=TIMESTAMP}
+    )
+  </insert>
+</mapper>
