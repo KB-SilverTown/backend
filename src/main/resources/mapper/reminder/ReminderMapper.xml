@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.reminder.mapper.ReminderMapper">
+  <resultMap id="reminderMap" type="com.silvertown.domain.reminder.vo.ReminderVo">
+    <id property="reminderId" column="reminder_id"/>
+    <result property="userId" column="user_id"/>
+    <result property="billId" column="bill_id"/>
+    <result property="title" column="title"/>
+    <result property="remindAt" column="remind_at"/>
+    <result property="status" column="status"/>
+  </resultMap>
+
+  <select id="findOwnedByCondition" resultMap="reminderMap">
+    SELECT reminder_id, user_id, bill_id, title, remind_at, status
+    FROM reminders
+    WHERE user_id = #{userId, jdbcType=CHAR}
+    <if test="status != null">
+      AND status = #{status}
+    </if>
+    <if test="from != null">
+      AND remind_at <![CDATA[ >= ]]> #{from}
+    </if>
+    <if test="to != null">
+      AND remind_at <![CDATA[ <= ]]> #{to}
+    </if>
+    ORDER BY remind_at ASC, reminder_id ASC
+  </select>
+
+  <select id="existsOwnedBill" resultType="int">
+    SELECT COUNT(1)
+    FROM bills
+    WHERE bill_id = #{billId, jdbcType=CHAR}
+      AND user_id = #{userId, jdbcType=CHAR}
+  </select>
+
+  <insert id="insert" parameterType="com.silvertown.domain.reminder.vo.ReminderVo">
+    INSERT INTO reminders (
+      reminder_id, user_id, bill_id, title, remind_at, status
+    ) VALUES (
+      #{reminderId, jdbcType=CHAR}, #{userId, jdbcType=CHAR}, #{billId, jdbcType=CHAR},
+      #{title, jdbcType=VARCHAR}, #{remindAt}, #{status}
+    )
+  </insert>
+</mapper>
