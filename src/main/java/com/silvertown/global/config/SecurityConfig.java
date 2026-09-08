@@ -54,7 +54,13 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    configuration.setAllowedOrigins(List.of("https://localhost", "http://localhost:5173"));
+    configuration.setAllowedOriginPatterns(List.of(
+        "http://localhost",
+        "http://localhost:*",
+        "https://localhost",
+        "https://localhost:*",
+        "capacitor://localhost"
+    ));
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
     configuration.setMaxAge(3600L);
