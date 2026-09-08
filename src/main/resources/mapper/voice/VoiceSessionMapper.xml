@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.voice.mapper.VoiceSessionMapper">
+
+    <resultMap id="voiceSessionResultMap" type="com.silvertown.domain.voice.vo.VoiceSessionVo">
+        <id property="sessionId" column="session_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="fromAccountId" column="from_account_id"/>
+        <result property="transferId" column="transfer_id"/>
+        <result property="status" column="status"/>
+        <result property="currentStep" column="current_step"/>
+        <result property="flowType" column="flow_type"/>
+        <result property="sttMode" column="stt_mode"/>
+        <result property="entryPoint" column="entry_point"/>
+        <result property="startedAt" column="started_at"/>
+        <result property="endedAt" column="ended_at"/>
+        <result property="expiresAt" column="expires_at"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.silvertown.domain.voice.vo.VoiceSessionVo">
+        INSERT INTO voice_sessions (
+            session_id,
+            user_id,
+            from_account_id,
+            status,
+            current_step,
+            flow_type,
+            stt_mode,
+            entry_point,
+            started_at,
+            expires_at
+        ) VALUES (
+            #{sessionId, jdbcType=CHAR},
+            #{userId, jdbcType=CHAR},
+            #{fromAccountId, jdbcType=CHAR},
+            #{status},
+            #{currentStep},
+            #{flowType},
+            #{sttMode},
+            #{entryPoint},
+            #{startedAt},
+            #{expiresAt}
+        )
+    </insert>
+
+    <select id="findOwnedById" resultMap="voiceSessionResultMap">
+        SELECT
+            session_id,
+            user_id,
+            from_account_id,
+            transfer_id,
+            status,
+            current_step,
+            flow_type,
+            stt_mode,
+            entry_point,
+            started_at,
+            ended_at,
+            expires_at
+        FROM voice_sessions
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+    </select>
+
+    <select id="findOwnedByIdForUpdate" resultMap="voiceSessionResultMap">
+        SELECT
+            session_id,
+            user_id,
+            from_account_id,
+            transfer_id,
+            status,
+            current_step,
+            flow_type,
+            stt_mode,
+            entry_point,
+            started_at,
+            ended_at,
+            expires_at
+        FROM voice_sessions
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+        FOR UPDATE NOWAIT
+    </select>
+
+    <select id="findActiveInteractiveSessions" resultMap="voiceSessionResultMap">
+        SELECT
+            session_id,
+            user_id,
+            from_account_id,
+            transfer_id,
+            status,
+            current_step,
+            flow_type,
+            stt_mode,
+            entry_point,
+            started_at,
+            ended_at,
+            expires_at
+        FROM voice_sessions
+        WHERE status IN ('LISTENING', 'SPEAKING')
+          AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
+    </select>
+
+    <update id="claimForTurn">
+        UPDATE voice_sessions
+        SET status = 'PROCESSING'
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND status IN ('LISTENING', 'SPEAKING')
+          AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
+    </update>
+
+    <update id="completeTurn">
+        UPDATE voice_sessions
+        SET status = 'SPEAKING',
+            current_step = #{currentStep}
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND status = 'PROCESSING'
+    </update>
+
+    <update id="restoreTurnClaim">
+        UPDATE voice_sessions
+        SET status = #{previousStatus}
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND status = 'PROCESSING'
+    </update>
+
+    <update id="updateTransferId">
+        UPDATE voice_sessions
+        SET transfer_id = #{transferId, jdbcType=CHAR}
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND (transfer_id IS NULL OR transfer_id = #{transferId, jdbcType=CHAR})
+    </update>
+
+    <update id="updateStatusAndStep">
+        UPDATE voice_sessions
+        SET status = #{status},
+            current_step = #{currentStep}
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND status NOT IN ('CLOSED', 'EXPIRED')
+    </update>
+
+    <update id="closeOwned">
+        UPDATE voice_sessions
+        SET status = 'CLOSED',
+            current_step = #{currentStep},
+            ended_at = #{endedAt}
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND status NOT IN ('CLOSED', 'EXPIRED')
+    </update>
+</mapper>

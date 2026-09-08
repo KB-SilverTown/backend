@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.voice.mapper.DialogueTurnMapper">
+
+    <resultMap id="dialogueTurnResultMap" type="com.silvertown.domain.voice.vo.DialogueTurnVo">
+        <id property="turnId" column="turn_id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="sequenceNo" column="sequence_no"/>
+        <result property="speaker" column="speaker"/>
+        <result property="transcript" column="transcript"/>
+        <result property="ttsText" column="tts_text"/>
+        <result property="ttsSsml" column="tts_ssml"/>
+        <result property="displayCard" column="display_card"/>
+        <result property="step" column="step"/>
+        <result property="intent" column="intent"/>
+        <result property="extractedSlots" column="extracted_slots"/>
+        <result property="silenceMs" column="silence_ms"/>
+        <result property="replayCount" column="replay_count"/>
+        <result property="interrupted" column="interrupted"/>
+        <result property="sttConfidence" column="stt_confidence"/>
+        <result property="inputType" column="input_type"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.silvertown.domain.voice.vo.DialogueTurnVo">
+        INSERT INTO dialogue_turns (
+            turn_id,
+            session_id,
+            sequence_no,
+            speaker,
+            transcript,
+            tts_text,
+            tts_ssml,
+            display_card,
+            step,
+            intent,
+            extracted_slots,
+            silence_ms,
+            replay_count,
+            interrupted,
+            stt_confidence,
+            input_type
+        ) VALUES (
+            #{turnId, jdbcType=CHAR},
+            #{sessionId, jdbcType=CHAR},
+            #{sequenceNo},
+            #{speaker},
+            #{transcript, jdbcType=LONGVARCHAR},
+            #{ttsText, jdbcType=LONGVARCHAR},
+            #{ttsSsml, jdbcType=LONGVARCHAR},
+            #{displayCard, jdbcType=LONGVARCHAR},
+            #{step},
+            #{intent},
+            #{extractedSlots, jdbcType=LONGVARCHAR},
+            #{silenceMs},
+            #{replayCount},
+            #{interrupted},
+            #{sttConfidence},
+            #{inputType}
+        )
+    </insert>
+
+    <select id="findNextSequenceNo" resultType="int">
+        SELECT COALESCE(MAX(sequence_no), 0) + 1
+        FROM dialogue_turns
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+    </select>
+
+    <select id="findBySessionIdAndTurnId" resultMap="dialogueTurnResultMap">
+        SELECT
+            turn_id,
+            session_id,
+            sequence_no,
+            speaker,
+            transcript,
+            tts_text,
+            tts_ssml,
+            display_card,
+            step,
+            intent,
+            extracted_slots,
+            silence_ms,
+            replay_count,
+            interrupted,
+            stt_confidence,
+            input_type,
+            created_at
+        FROM dialogue_turns
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+          AND turn_id = #{turnId, jdbcType=CHAR}
+    </select>
+
+    <select id="findBySessionIdAndSequenceNo" resultMap="dialogueTurnResultMap">
+        SELECT
+            turn_id,
+            session_id,
+            sequence_no,
+            speaker,
+            transcript,
+            tts_text,
+            tts_ssml,
+            display_card,
+            step,
+            intent,
+            extracted_slots,
+            silence_ms,
+            replay_count,
+            interrupted,
+            stt_confidence,
+            input_type,
+            created_at
+        FROM dialogue_turns
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+          AND sequence_no = #{sequenceNo}
+    </select>
+
+    <select id="findLatestBySessionId" resultMap="dialogueTurnResultMap">
+        SELECT
+            turn_id,
+            session_id,
+            sequence_no,
+            speaker,
+            transcript,
+            tts_text,
+            tts_ssml,
+            display_card,
+            step,
+            intent,
+            extracted_slots,
+            silence_ms,
+            replay_count,
+            interrupted,
+            stt_confidence,
+            input_type,
+            created_at
+        FROM dialogue_turns
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+        ORDER BY sequence_no DESC
+        LIMIT 1
+    </select>
+
+    <select id="findLatestBySessionIdForUpdate" resultMap="dialogueTurnResultMap">
+        SELECT
+            turn_id,
+            session_id,
+            sequence_no,
+            speaker,
+            transcript,
+            tts_text,
+            tts_ssml,
+            display_card,
+            step,
+            intent,
+            extracted_slots,
+            silence_ms,
+            replay_count,
+            interrupted,
+            stt_confidence,
+            input_type,
+            created_at
+        FROM dialogue_turns
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+        ORDER BY sequence_no DESC
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <select id="findLatestBusinessAiTurn" resultMap="dialogueTurnResultMap">
+        SELECT
+            turn_id,
+            session_id,
+            sequence_no,
+            speaker,
+            transcript,
+            tts_text,
+            tts_ssml,
+            display_card,
+            step,
+            intent,
+            extracted_slots,
+            silence_ms,
+            replay_count,
+            interrupted,
+            stt_confidence,
+            input_type,
+            created_at
+        FROM dialogue_turns
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+          AND speaker = 'AI'
+          AND interrupted = FALSE
+          AND step &lt;&gt; 'AWAITING_CONTINUATION'
+        ORDER BY sequence_no DESC
+        LIMIT 1
+    </select>
+
+    <select id="findLatestReplayableAiTurn" resultMap="dialogueTurnResultMap">
+        SELECT
+            turn_id,
+            session_id,
+            sequence_no,
+            speaker,
+            transcript,
+            tts_text,
+            tts_ssml,
+            display_card,
+            step,
+            intent,
+            extracted_slots,
+            silence_ms,
+            replay_count,
+            interrupted,
+            stt_confidence,
+            input_type,
+            created_at
+        FROM dialogue_turns
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+          AND speaker = 'AI'
+          AND interrupted = FALSE
+        ORDER BY sequence_no DESC
+        LIMIT 1
+    </select>
+
+    <update id="incrementReplayCount">
+        UPDATE dialogue_turns
+        SET replay_count = replay_count + 1
+        WHERE turn_id = #{turnId, jdbcType=CHAR}
+          AND speaker = 'AI'
+          AND interrupted = FALSE
+    </update>
+
+    <update id="markInterrupted">
+        UPDATE dialogue_turns
+        SET interrupted = TRUE
+        WHERE turn_id = #{turnId, jdbcType=CHAR}
+          AND speaker = 'AI'
+          AND interrupted = FALSE
+    </update>
+
+    <update id="recordSilenceMs">
+        UPDATE dialogue_turns
+        SET silence_ms = #{silenceMs}
+        WHERE turn_id = #{turnId, jdbcType=CHAR}
+          AND silence_ms = 0
+          AND interrupted = FALSE
+    </update>
+
+    <update id="updateDisplayCard">
+        UPDATE dialogue_turns
+        SET display_card = #{displayCard, jdbcType=LONGVARCHAR}
+        WHERE turn_id = #{turnId, jdbcType=CHAR}
+          AND speaker = 'AI'
+    </update>
+</mapper>

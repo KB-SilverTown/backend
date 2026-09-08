@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.voice.mapper.VoiceInteractionCardMapper">
+    <resultMap id="cardResultMap" type="com.silvertown.domain.voice.vo.VoiceInteractionCardVo">
+        <id property="sessionId" column="session_id"/>
+        <result property="cardId" column="card_id"/>
+        <result property="cardVersion" column="card_version"/>
+        <result property="sourceTurnId" column="source_turn_id"/>
+        <result property="cardType" column="card_type"/>
+        <result property="actions" column="actions"/>
+        <result property="candidateItems" column="candidate_items"/>
+        <result property="focusedItemId" column="focused_item_id"/>
+        <result property="confirmedRecipientId" column="confirmed_recipient_id"/>
+        <result property="confirmedAmount" column="confirmed_amount"/>
+        <result property="active" column="is_active"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="cardColumns">
+        session_id, card_id, card_version, source_turn_id, card_type, actions, candidate_items,
+        focused_item_id, confirmed_recipient_id, confirmed_amount, is_active, created_at, updated_at
+    </sql>
+
+    <select id="findBySessionId" resultMap="cardResultMap">
+        SELECT <include refid="cardColumns"/> FROM voice_interaction_cards
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+    </select>
+
+    <select id="findBySessionIdForUpdate" resultMap="cardResultMap">
+        SELECT <include refid="cardColumns"/> FROM voice_interaction_cards
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+        FOR UPDATE
+    </select>
+
+    <insert id="insert" parameterType="com.silvertown.domain.voice.vo.VoiceInteractionCardVo">
+        INSERT INTO voice_interaction_cards (
+            session_id, card_id, card_version, source_turn_id, card_type, actions, candidate_items,
+            focused_item_id, confirmed_recipient_id, confirmed_amount, is_active
+        ) VALUES (
+            #{sessionId, jdbcType=CHAR}, #{cardId, jdbcType=CHAR}, #{cardVersion},
+            #{sourceTurnId, jdbcType=CHAR}, #{cardType}, #{actions, jdbcType=LONGVARCHAR},
+            #{candidateItems, jdbcType=LONGVARCHAR}, #{focusedItemId, jdbcType=CHAR},
+            #{confirmedRecipientId, jdbcType=CHAR}, #{confirmedAmount}, #{active}
+        )
+    </insert>
+
+    <update id="replace" parameterType="com.silvertown.domain.voice.vo.VoiceInteractionCardVo">
+        UPDATE voice_interaction_cards
+        SET card_id = #{cardId, jdbcType=CHAR},
+            card_version = #{cardVersion},
+            source_turn_id = #{sourceTurnId, jdbcType=CHAR},
+            card_type = #{cardType},
+            actions = #{actions, jdbcType=LONGVARCHAR},
+            candidate_items = #{candidateItems, jdbcType=LONGVARCHAR},
+            focused_item_id = #{focusedItemId, jdbcType=CHAR},
+            confirmed_recipient_id = #{confirmedRecipientId, jdbcType=CHAR},
+            confirmed_amount = #{confirmedAmount},
+            is_active = #{active}
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+    </update>
+
+    <update id="deactivateActiveBySessionId">
+        UPDATE voice_interaction_cards
+        SET is_active = FALSE
+        WHERE session_id = #{sessionId, jdbcType=CHAR}
+          AND is_active = TRUE
+    </update>
+</mapper>

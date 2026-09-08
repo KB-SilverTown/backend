@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.voice.mapper.VoiceUiActionMapper">
+    <resultMap id="actionResultMap" type="com.silvertown.domain.voice.vo.VoiceUiActionVo">
+        <id property="actionId" column="action_id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="sourceTurnId" column="source_turn_id"/>
+        <result property="cardId" column="card_id"/>
+        <result property="cardVersion" column="card_version"/>
+        <result property="actionType" column="action_type"/>
+        <result property="itemId" column="item_id"/>
+        <result property="requestHash" column="request_hash"/>
+        <result property="responseTurnId" column="response_turn_id"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="findByActionId" resultMap="actionResultMap">
+        SELECT action_id, session_id, source_turn_id, card_id, card_version, action_type,
+               item_id, request_hash, response_turn_id, created_at
+        FROM voice_ui_actions
+        WHERE action_id = #{actionId, jdbcType=CHAR}
+    </select>
+
+    <insert id="insert" parameterType="com.silvertown.domain.voice.vo.VoiceUiActionVo">
+        INSERT INTO voice_ui_actions (
+            action_id, session_id, source_turn_id, card_id, card_version, action_type,
+            item_id, request_hash, response_turn_id
+        ) VALUES (
+            #{actionId, jdbcType=CHAR}, #{sessionId, jdbcType=CHAR},
+            #{sourceTurnId, jdbcType=CHAR}, #{cardId, jdbcType=CHAR}, #{cardVersion},
+            #{actionType}, #{itemId, jdbcType=CHAR}, #{requestHash},
+            #{responseTurnId, jdbcType=CHAR}
+        )
+    </insert>
+</mapper>

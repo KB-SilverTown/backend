@@ -7,11 +7,13 @@ import org.junit.jupiter.api.Test;
 class WebConfigBootstrapTest {
 
     @Test
-    void excludesVoiceStreamConfigurationUntilVoiceIntegration() {
+    void registersVoiceStreamConfigurationWithTheServletContext() {
         WebConfig webConfig = new WebConfig();
 
         assertArrayEquals(
-                new Class<?>[]{ServletConfig.class, SwaggerConfig.class},
+                new Class<?>[]{
+                    ServletConfig.class, SwaggerConfig.class, VoiceStreamWebSocketConfig.class
+                },
                 webConfig.getServletConfigClasses());
     }
 }
