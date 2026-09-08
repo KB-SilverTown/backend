@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.risk.mapper.RiskScoreMapper">
+  <select id="findLastSuccessfulTransferAt" resultType="java.time.OffsetDateTime">
+    SELECT MAX(tx.transferred_at)
+    FROM transactions tx
+    JOIN transfers t ON t.transfer_id = tx.transfer_id
+    WHERE t.user_id = #{userId, jdbcType=CHAR}
+      AND tx.recipient_id = #{recipientId, jdbcType=CHAR}
+      AND tx.status = 'SUCCESS'
+  </select>
+
+  <select id="findRecentUserAmounts" resultType="long">
+    SELECT tx.amount
+    FROM transactions tx
+    JOIN transfers t ON t.transfer_id = tx.transfer_id
+    WHERE t.user_id = #{userId, jdbcType=CHAR}
+      AND tx.status = 'SUCCESS'
+      AND tx.amount > 0
+      AND tx.transferred_at >= CURRENT_TIMESTAMP - INTERVAL 180 DAY
+      AND tx.transferred_at &lt; CURRENT_TIMESTAMP - INTERVAL 7 DAY
+    ORDER BY tx.transferred_at DESC
+    LIMIT 100
+  </select>
+
+  <select id="findRecentRecipientAmounts" resultType="long">
+    SELECT tx.amount
+    FROM transactions tx
+    JOIN transfers t ON t.transfer_id = tx.transfer_id
+    WHERE t.user_id = #{userId, jdbcType=CHAR}
+      AND tx.recipient_id = #{recipientId, jdbcType=CHAR}
+      AND tx.status = 'SUCCESS'
+      AND tx.amount > 0
+      AND tx.transferred_at >= CURRENT_TIMESTAMP - INTERVAL 180 DAY
+      AND tx.transferred_at &lt; CURRENT_TIMESTAMP - INTERVAL 7 DAY
+    ORDER BY tx.transferred_at DESC
+    LIMIT 50
+  </select>
+
+  <select id="countRecentAttempts" resultType="int">
+    SELECT COUNT(1)
+    FROM transfers
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND recipient_id = #{recipientId, jdbcType=CHAR}
+      AND created_at >= CURRENT_TIMESTAMP - INTERVAL 30 MINUTE
+      AND status NOT IN ('CANCELLED', 'EXPIRED')
+  </select>
+
+  <select id="countRecentDistinctRecipients" resultType="int">
+    SELECT COUNT(DISTINCT recipient_id)
+    FROM transfers
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND created_at >= CURRENT_TIMESTAMP - INTERVAL 30 MINUTE
+      AND status NOT IN ('CANCELLED', 'EXPIRED')
+  </select>
+
+  <insert id="insertAssessment" parameterType="com.silvertown.domain.risk.vo.RiskAssessment">
+    INSERT INTO transfer_risk_assessments (
+      assessment_id, transfer_id, source, score, level, factors,
+      additional_check_required, assessed_at
+    ) VALUES (
+      #{assessmentId, jdbcType=CHAR}, #{transferId, jdbcType=CHAR}, #{source}, #{score},
+      #{level}, #{factors, jdbcType=VARCHAR}, #{additionalCheckRequired}, #{assessedAt}
+    )
+  </insert>
+
+  <insert id="insertRiskCheck" parameterType="com.silvertown.domain.risk.vo.RiskCheck">
+    INSERT INTO transfer_risk_checks (
+      risk_check_id, transfer_id, purpose_answer, suspicious, hold,
+      additional_auth_required, message, checked_at
+    ) VALUES (
+      #{riskCheckId, jdbcType=CHAR}, #{transferId, jdbcType=CHAR}, #{purposeAnswer},
+      #{suspicious}, #{hold}, #{additionalAuthRequired}, #{message}, #{checkedAt}
+    )
+  </insert>
+
+  <update id="holdTransfer">
+    UPDATE transfers
+    SET status = 'HELD', current_step = 'RISK_CHECK'
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND transfer_id = #{transferId, jdbcType=CHAR}
+      AND status IN ('DRAFT', 'RECONFIRM', 'CONFIRMED', 'HELD')
+  </update>
+</mapper>
