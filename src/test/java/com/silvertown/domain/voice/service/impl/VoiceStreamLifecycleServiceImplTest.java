@@ -154,15 +154,16 @@ class VoiceStreamLifecycleServiceImplTest {
     }
 
     @Test
-    void rejectsStaleAiInterruptionEvenWhenTheTurnIdWasReused() {
+    void interruptsTheCurrentAiTurnWithoutAClientSuppliedGeneration() {
         VoiceSessionVo newerTurn = session(VoiceSessionStatus.SPEAKING, null, AI_TURN_ID, 6);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(newerTurn);
+        when(dialogueTurnMapper.markInterrupted(AI_TURN_ID)).thenReturn(1);
+        when(voiceSessionMapper.interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, 6, NOW)).thenReturn(1);
 
-        assertTurnConflict(() -> service.interruptAiTts(USER_ID, SESSION_ID, AI_TURN_ID, 5));
+        service.interruptAiTts(USER_ID, SESSION_ID, AI_TURN_ID);
 
-        verify(dialogueTurnMapper, never()).markInterrupted(AI_TURN_ID);
-        verify(voiceSessionMapper, never()).interruptActiveAiTurn(
-                eq(USER_ID), eq(SESSION_ID), eq(AI_TURN_ID), eq(5L), eq(NOW));
+        verify(dialogueTurnMapper).markInterrupted(AI_TURN_ID);
+        verify(voiceSessionMapper).interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, 6, NOW);
     }
 
     @Test

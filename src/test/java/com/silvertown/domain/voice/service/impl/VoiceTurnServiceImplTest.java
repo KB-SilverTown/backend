@@ -181,6 +181,26 @@ class VoiceTurnServiceImplTest {
     }
 
     @Test
+    void rejectsCancelledAzureFinalBeforeItCanCreateTurnOrTransferSideEffects() {
+        VoiceSessionVo cancelled = processingBackendTransferSession();
+        cancelled.setActiveInputTurnId("20000000-0000-0000-0000-000000000099");
+        cancelled.setLifecycleGeneration(8);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(cancelled);
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.processAzureTransferFinal(
+                USER_ID,
+                SESSION_ID,
+                TURN_ID,
+                7,
+                new AzureSpeechDetailedResult("김철수에게 오만 원 보내줘", new BigDecimal("0.95"), List.of())));
+
+        assertEquals(com.silvertown.global.common.exception.ErrorCode.VOICE_TURN_CONFLICT, exception.getErrorCode());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+        verify(dialogueTurnMapper, never()).insert(any());
+        verify(voiceInteractionCardIssuer, never()).issueIfInteractive(any(), any(), any());
+    }
+
+    @Test
     void doesNotEnrichRecipientCandidatesAfterTheAmountStepHasStarted() throws Exception {
         VoiceSessionVo listening = activeSession();
         listening.setFlowType(VoiceFlowType.TRANSFER.name());

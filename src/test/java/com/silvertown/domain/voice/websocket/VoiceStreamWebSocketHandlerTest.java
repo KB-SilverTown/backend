@@ -18,6 +18,7 @@ import com.silvertown.domain.voice.enums.VoiceFlowType;
 import com.silvertown.domain.voice.enums.VoiceSessionEntryPoint;
 import com.silvertown.domain.voice.enums.VoiceSessionStatus;
 import com.silvertown.domain.voice.service.VoiceSessionService;
+import com.silvertown.domain.voice.service.VoiceStreamLifecycleService;
 import com.silvertown.domain.voice.service.VoiceTurnService;
 import com.silvertown.domain.voice.stt.AzureSpeechDetailedResult;
 import com.silvertown.domain.voice.stt.AzureSpeechRecognitionListener;
@@ -53,6 +54,7 @@ class VoiceStreamWebSocketHandlerTest {
     private static final int MAX_PCM_FRAME_BYTES = 64 * 1024;
 
     private VoiceSessionService voiceSessionService;
+    private VoiceStreamLifecycleService voiceStreamLifecycleService;
     private VoiceTurnService voiceTurnService;
     private AzureSpeechV2StreamingClient azureSpeechClient;
     private AzureSpeechRecognitionStream stream;
@@ -61,6 +63,7 @@ class VoiceStreamWebSocketHandlerTest {
     @BeforeEach
     void setUp() {
         voiceSessionService = org.mockito.Mockito.mock(VoiceSessionService.class);
+        voiceStreamLifecycleService = org.mockito.Mockito.mock(VoiceStreamLifecycleService.class);
         voiceTurnService = org.mockito.Mockito.mock(VoiceTurnService.class);
         azureSpeechClient = org.mockito.Mockito.mock(AzureSpeechV2StreamingClient.class);
         stream = org.mockito.Mockito.mock(AzureSpeechRecognitionStream.class);
@@ -71,6 +74,9 @@ class VoiceStreamWebSocketHandlerTest {
     void rejectsStartForANonListeningSessionBeforeOpeningAzureSpeech() throws Exception {
         WebSocketSession session = webSocketSession("websocket-1");
         when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(session(VoiceSessionStatus.PROCESSING));
+        doThrow(new BusinessException(ErrorCode.VOICE_TURN_CONFLICT))
+                .when(voiceStreamLifecycleService)
+                .claimInputTurn(USER_ID, SESSION_ID, FIRST_TURN_ID);
 
         handler.handleMessage(session, start(FIRST_TURN_ID));
 
@@ -117,9 +123,12 @@ class VoiceStreamWebSocketHandlerTest {
         listener.getValue().onFailure();
 
         ArgumentCaptor<TextMessage> error = ArgumentCaptor.forClass(TextMessage.class);
-        verify(session, timeout(1_000)).sendMessage(error.capture());
-        com.fasterxml.jackson.databind.JsonNode payload =
-                new ObjectMapper().readTree(error.getValue().getPayload());
+        verify(session, timeout(1_000).atLeast(2)).sendMessage(error.capture());
+        com.fasterxml.jackson.databind.JsonNode payload = error.getAllValues().stream()
+                .map(message -> readJson(message.getPayload()))
+                .filter(message -> "ERROR".equals(message.path("type").asText()))
+                .findFirst()
+                .orElseThrow();
         org.junit.jupiter.api.Assertions.assertEquals("SPEECH_RECOGNITION_FAILED", payload.path("code").asText());
         org.junit.jupiter.api.Assertions.assertTrue(payload.path("retryable").asBoolean());
     }
@@ -131,7 +140,7 @@ class VoiceStreamWebSocketHandlerTest {
                 ArgumentCaptor.forClass(AzureSpeechRecognitionListener.class);
         when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(session(VoiceSessionStatus.LISTENING));
         when(azureSpeechClient.open(listener.capture())).thenReturn(stream);
-        when(voiceTurnService.processAzureTransferFinal(any(), any(), any(), any())).thenReturn(
+        when(voiceTurnService.processAzureTransferFinal(any(), any(), any(), any(Long.class), any())).thenReturn(
                 new VoiceTurnResponse(
                         SESSION_ID,
                         FIRST_TURN_ID,
@@ -152,18 +161,93 @@ class VoiceStreamWebSocketHandlerTest {
                 "김철수에게 오만 원 보내줘", new BigDecimal("0.95"), List.of()));
 
         ArgumentCaptor<TextMessage> messages = ArgumentCaptor.forClass(TextMessage.class);
-        verify(session, timeout(1_000).times(2)).sendMessage(messages.capture());
+        verify(session, timeout(1_000).times(3)).sendMessage(messages.capture());
         com.fasterxml.jackson.databind.JsonNode turnResponse = messages.getAllValues().stream()
                 .map(message -> readJson(message.getPayload()))
                 .filter(message -> "TURN_RESPONSE".equals(message.path("type").asText()))
                 .findFirst()
                 .orElseThrow();
-        org.junit.jupiter.api.Assertions.assertEquals(FIRST_TURN_ID, turnResponse.path("turnId").asText());
+        org.junit.jupiter.api.Assertions.assertEquals(FIRST_TURN_ID, turnResponse.path("inputTurnId").asText());
         org.junit.jupiter.api.Assertions.assertEquals(SESSION_ID, turnResponse.path("data").path("sessionId").asText());
         org.junit.jupiter.api.Assertions.assertEquals(FIRST_TURN_ID, turnResponse.path("data").path("turnId").asText());
         org.junit.jupiter.api.Assertions.assertEquals(
                 "TRANSFER_RECIPIENT_CANDIDATES",
                 turnResponse.path("data").path("requestedFunction").asText());
+    }
+
+    @Test
+    void acknowledgesStartBeforeAcceptingPcmWithTheInputTurnId() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        when(azureSpeechClient.open(any())).thenReturn(stream);
+
+        handler.handleMessage(session, new TextMessage(
+                "{\"type\":\"START\",\"inputTurnId\":\"" + FIRST_TURN_ID + "\"}"));
+
+        ArgumentCaptor<TextMessage> messages = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(messages.capture());
+        com.fasterxml.jackson.databind.JsonNode ack = readJson(messages.getValue().getPayload());
+        org.junit.jupiter.api.Assertions.assertEquals("START_ACK", ack.path("type").asText());
+        org.junit.jupiter.api.Assertions.assertEquals(FIRST_TURN_ID, ack.path("inputTurnId").asText());
+        org.junit.jupiter.api.Assertions.assertEquals(0, ack.path("nextSequence").asInt());
+
+        handler.handleMessage(session, audio(0, new byte[] {1}));
+        verify(stream).write(new byte[] {1});
+    }
+
+    @Test
+    void acknowledgesStopOnlyAfterPcmIsBlocked() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        when(azureSpeechClient.open(any())).thenReturn(stream);
+
+        handler.handleMessage(session, start(FIRST_TURN_ID));
+        handler.handleMessage(session, new TextMessage(
+                "{\"type\":\"STOP\",\"inputTurnId\":\"" + FIRST_TURN_ID + "\"}"));
+        handler.handleMessage(session, audio(0, new byte[] {1}));
+
+        verify(stream).stop();
+        verify(stream, never()).write(any());
+        ArgumentCaptor<TextMessage> messages = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session, atLeastOnce()).sendMessage(messages.capture());
+        org.junit.jupiter.api.Assertions.assertTrue(messages.getAllValues().stream()
+                .map(message -> readJson(message.getPayload()))
+                .anyMatch(event -> "STOP_ACK".equals(event.path("type").asText())
+                        && FIRST_TURN_ID.equals(event.path("inputTurnId").asText())));
+    }
+
+    @Test
+    void interruptsTheActiveAiTurnThenSignalsReadyForTheNextStart() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+
+        handler.handleMessage(session, new TextMessage("{\"type\":\"BARGE_IN\",\"target\":\"AI_TTS\","
+                + "\"interruptedAiTurnId\":\"" + SECOND_TURN_ID + "\"}"));
+
+        verify(voiceStreamLifecycleService).interruptAiTts(USER_ID, SESSION_ID, SECOND_TURN_ID);
+        ArgumentCaptor<TextMessage> messages = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(messages.capture());
+        com.fasterxml.jackson.databind.JsonNode cancelled = readJson(messages.getValue().getPayload());
+        org.junit.jupiter.api.Assertions.assertEquals("CANCELLED", cancelled.path("type").asText());
+        org.junit.jupiter.api.Assertions.assertEquals("AI_TTS", cancelled.path("target").asText());
+        org.junit.jupiter.api.Assertions.assertTrue(cancelled.path("readyForStart").asBoolean());
+    }
+
+    @Test
+    void cancelsInputStreamBeforeSendingReadyForTheNextStart() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        when(azureSpeechClient.open(any())).thenReturn(stream);
+
+        handler.handleMessage(session, start(FIRST_TURN_ID));
+        handler.handleMessage(session, bargeIn(FIRST_TURN_ID));
+
+        verify(stream).stop();
+        verify(stream).close();
+        verify(voiceStreamLifecycleService).cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        ArgumentCaptor<TextMessage> messages = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session, atLeastOnce()).sendMessage(messages.capture());
+        org.junit.jupiter.api.Assertions.assertTrue(messages.getAllValues().stream()
+                .map(message -> readJson(message.getPayload()))
+                .anyMatch(event -> "CANCELLED".equals(event.path("type").asText())
+                        && "INPUT_STREAM".equals(event.path("target").asText())
+                        && event.path("readyForStart").asBoolean()));
     }
 
     @Test
@@ -254,6 +338,7 @@ class VoiceStreamWebSocketHandlerTest {
                         ArgumentMatchers.anyString(),
                         ArgumentMatchers.anyString(),
                         ArgumentMatchers.anyString(),
+                        ArgumentMatchers.anyLong(),
                         any());
     }
 
@@ -276,6 +361,7 @@ class VoiceStreamWebSocketHandlerTest {
                         USER_ID,
                         SESSION_ID,
                         FIRST_TURN_ID,
+                        0L,
                         new AzureSpeechDetailedResult(
                                 "김철수에게 오만 원 보내줘", new BigDecimal("0.95"), List.of()));
     }
@@ -329,7 +415,7 @@ class VoiceStreamWebSocketHandlerTest {
 
         verify(stream, atLeastOnce()).stop();
         verify(stream, never()).write(any());
-        verify(firstSession).sendMessage(any(TextMessage.class));
+        verify(firstSession, atLeastOnce()).sendMessage(any(TextMessage.class));
         verify(resumedSession).sendMessage(any(TextMessage.class));
     }
 
@@ -446,6 +532,7 @@ class VoiceStreamWebSocketHandlerTest {
     private VoiceStreamWebSocketHandler newHandler(long resumeGraceMillis) {
         return new VoiceStreamWebSocketHandler(
                 voiceSessionService,
+                voiceStreamLifecycleService,
                 voiceTurnService,
                 azureSpeechClient,
                 new ObjectMapper(),
@@ -466,7 +553,8 @@ class VoiceStreamWebSocketHandlerTest {
     }
 
     private TextMessage bargeIn(String turnId) {
-        return new TextMessage("{\"type\":\"BARGE_IN\",\"turnId\":\"" + turnId + "\"}");
+        return new TextMessage("{\"type\":\"BARGE_IN\",\"target\":\"INPUT_STREAM\",\"inputTurnId\":\""
+                + turnId + "\"}");
     }
 
     private TextMessage stop(String turnId) {
@@ -490,10 +578,13 @@ class VoiceStreamWebSocketHandlerTest {
 
     private void assertInvalidRequestErrorWithRequestId(WebSocketSession session) throws Exception {
         ArgumentCaptor<TextMessage> error = ArgumentCaptor.forClass(TextMessage.class);
-        verify(session).sendMessage(error.capture());
+        verify(session, atLeastOnce()).sendMessage(error.capture());
 
-        com.fasterxml.jackson.databind.JsonNode payload =
-                new ObjectMapper().readTree(error.getValue().getPayload());
+        com.fasterxml.jackson.databind.JsonNode payload = error.getAllValues().stream()
+                .map(message -> readJson(message.getPayload()))
+                .filter(message -> "ERROR".equals(message.path("type").asText()))
+                .findFirst()
+                .orElseThrow();
         org.junit.jupiter.api.Assertions.assertEquals("ERROR", payload.path("type").asText());
         org.junit.jupiter.api.Assertions.assertEquals("INVALID_REQUEST", payload.path("code").asText());
         org.junit.jupiter.api.Assertions.assertTrue(payload.has("retryable"));
