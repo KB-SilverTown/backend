@@ -245,6 +245,10 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         java.util.List<RecipientCandidateResponse> visibleCandidates = candidates.stream().limit(2).toList();
         ObjectNode displayCard = objectMapper.createObjectNode();
         displayCard.put("type", "RECIPIENT_CANDIDATES");
+        java.util.List<Long> amountCandidates = amountCandidates(analysis.getSlots());
+        if (!amountCandidates.isEmpty()) {
+            displayCard.set("pendingAmountCandidates", objectMapper.valueToTree(amountCandidates));
+        }
         com.fasterxml.jackson.databind.node.ArrayNode items = displayCard.putArray("items");
         for (RecipientCandidateResponse candidate : visibleCandidates) {
             ObjectNode item = items.addObject();
@@ -338,6 +342,11 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
             return reaskFocusedSelection(card);
         }
         if ("RECIPIENT_CANDIDATES".equals(card.getCardType()) && card.getFocusedItemId() != null) {
+            java.util.List<Long> pendingAmountCandidates = pendingAmountCandidates(card);
+            if (!pendingAmountCandidates.isEmpty()) {
+                return withVoiceCardAction(
+                        safeAmountReconfirm(BigDecimal.ONE, pendingAmountCandidates), "RECIPIENT_ACCEPT");
+            }
             return contextualResult(
                     DialogueStep.AWAITING_AMOUNT,
                     "보낼 금액을 말씀해 주세요.",
@@ -531,6 +540,54 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         } catch (JsonProcessingException exception) {
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
+    }
+
+    private java.util.List<Long> amountCandidates(Map<String, Object> slots) {
+        Object value = slots.get("amountCandidates");
+        if (!(value instanceof java.util.Collection<?>)) {
+            return java.util.List.of();
+        }
+        java.util.List<Long> candidates = new java.util.ArrayList<>();
+        for (Object candidate : (java.util.Collection<?>) value) {
+            if (candidate instanceof Number && ((Number) candidate).longValue() > 0) {
+                candidates.add(((Number) candidate).longValue());
+            }
+        }
+        return candidates;
+    }
+
+    private java.util.List<Long> pendingAmountCandidates(VoiceInteractionCardVo card) {
+        try {
+            JsonNode items = objectMapper.readTree(card.getCandidateItems());
+            if (!items.isArray() || items.isEmpty()) {
+                return java.util.List.of();
+            }
+            JsonNode candidates = items.get(0).path("pendingAmountCandidates");
+            if (!candidates.isArray()) {
+                return java.util.List.of();
+            }
+            java.util.List<Long> result = new java.util.ArrayList<>();
+            for (JsonNode candidate : candidates) {
+                if (!candidate.canConvertToLong() || candidate.longValue() <= 0) {
+                    return java.util.List.of();
+                }
+                result.add(candidate.longValue());
+            }
+            return result;
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    private VoiceTurnAnalysisResult withVoiceCardAction(
+            VoiceTurnAnalysisResult analysis, String action) {
+        Map<String, Object> slots = new LinkedHashMap<>(analysis.getSlots());
+        slots.put(VOICE_CARD_ACTION_FIELD, action);
+        return new VoiceTurnAnalysisResult(
+                analysis.getNextStep(), analysis.getIntent(), slots, analysis.getConfidence(),
+                analysis.getTtsText(), analysis.getTtsSsml(), analysis.getDisplayCard(),
+                analysis.getRequiredSlot(), analysis.getDraftSummary(), analysis.getNextAction(),
+                analysis.getRequestedFunction());
     }
 
     private boolean isPositiveAcceptance(String transcript) {

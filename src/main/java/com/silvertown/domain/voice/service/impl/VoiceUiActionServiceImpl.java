@@ -152,6 +152,10 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
             VoiceInteractionCardVo card = nextCard(current, responseTurnId);
             card.setConfirmedRecipientId(card.getFocusedItemId());
             card.setActive(false);
+            List<Long> pendingAmountCandidates = pendingAmountCandidates(card);
+            if (!pendingAmountCandidates.isEmpty()) {
+                return reaskAmount(card, pendingAmountCandidates);
+            }
             return new ActionOutcome(
                     DialogueStep.AWAITING_AMOUNT,
                     "TRANSFER",
@@ -245,6 +249,8 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
                 focusedItemId = itemId;
             }
         }
+        card.setCardType("AMOUNT_RECONFIRM");
+        card.setActions("[\"SELECT_AMOUNT\",\"ACCEPT_FOCUSED_SELECTION\",\"REJECT_FOCUSED_SELECTION\",\"CANCEL_FLOW\"]");
         card.setCandidateItems(items.toString());
         card.setFocusedItemId(focusedItemId);
         card.setConfirmedAmount(null);
@@ -258,6 +264,29 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
                 VoiceNextAction.RECONFIRM_INPUT.name(),
                 card,
                 false);
+    }
+
+    private List<Long> pendingAmountCandidates(VoiceInteractionCardVo card) {
+        try {
+            ArrayNode items = candidateItems(card);
+            if (items.isEmpty()) {
+                return List.of();
+            }
+            JsonNode candidates = items.get(0).path("pendingAmountCandidates");
+            if (!candidates.isArray()) {
+                return List.of();
+            }
+            List<Long> result = new java.util.ArrayList<>();
+            for (JsonNode candidate : candidates) {
+                if (!candidate.canConvertToLong() || candidate.longValue() <= 0) {
+                    return List.of();
+                }
+                result.add(candidate.longValue());
+            }
+            return result;
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR);
+        }
     }
 
     private ActionOutcome reject(VoiceInteractionCardVo current, String responseTurnId) {
