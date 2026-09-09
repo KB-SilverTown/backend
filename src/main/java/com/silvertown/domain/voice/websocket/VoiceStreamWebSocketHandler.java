@@ -57,6 +57,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
     private static final int MAX_PCM_FRAME_BYTES = 64 * 1024;
     private static final long MAX_UNSIGNED_INT = 0xFFFF_FFFFL;
     private static final long DEFAULT_RESUME_GRACE_MILLIS = 10_000L;
+    private static final long DEFAULT_FINAL_RESULT_TIMEOUT_MILLIS = 10_000L;
 
     private final VoiceSessionService voiceSessionService;
     private final VoiceStreamLifecycleService voiceStreamLifecycleService;
@@ -65,6 +66,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final long resumeGraceMillis;
     private final long resumeGraceNanos;
+    private final long finalResultTimeoutMillis;
     private final Object streamLifecycleMonitor = new Object();
     private final Map<String, ActiveStream> activeStreams = new ConcurrentHashMap<>();
     private final Map<String, ActiveStream> activeVoiceStreams = new ConcurrentHashMap<>();
@@ -76,9 +78,11 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             AzureSpeechV2StreamingClient azureSpeechClient,
             ObjectMapper objectMapper,
             @Value("${voice.stream.resume-grace-millis:" + DEFAULT_RESUME_GRACE_MILLIS + "}")
-                    long resumeGraceMillis) {
-        if (resumeGraceMillis <= 0) {
-            throw new IllegalArgumentException("voice.stream.resume-grace-millis must be positive.");
+                    long resumeGraceMillis,
+            @Value("${voice.stream.final-result-timeout-millis:" + DEFAULT_FINAL_RESULT_TIMEOUT_MILLIS + "}")
+                    long finalResultTimeoutMillis) {
+        if (resumeGraceMillis <= 0 || finalResultTimeoutMillis <= 0) {
+            throw new IllegalArgumentException("Voice stream timeout values must be positive.");
         }
         this.voiceSessionService = voiceSessionService;
         this.voiceStreamLifecycleService = voiceStreamLifecycleService;
@@ -87,6 +91,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         this.objectMapper = objectMapper;
         this.resumeGraceMillis = resumeGraceMillis;
         this.resumeGraceNanos = TimeUnit.MILLISECONDS.toNanos(resumeGraceMillis);
+        this.finalResultTimeoutMillis = finalResultTimeoutMillis;
     }
 
     @Override
@@ -249,11 +254,14 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
 
                 @Override
                 public void onFailure() {
-                    if (!cancelled.get()) {
-                        sendError(responseSession(lifecycle.active.get(), session), ErrorCode.SPEECH_RECOGNITION_FAILED);
-                        cancelInputLifecycle(userId, sessionId, inputTurnId, lifecycleGeneration);
-                    }
-                    requestCloseActive(lifecycle);
+                    handleRecognitionFailure(
+                            cancelled, finalHandled, lifecycle, session, userId, sessionId, inputTurnId, lifecycleGeneration);
+                }
+
+                @Override
+                public void onNoMatch() {
+                    handleRecognitionFailure(
+                            cancelled, finalHandled, lifecycle, session, userId, sessionId, inputTurnId, lifecycleGeneration);
                 }
             });
             active = new ActiveStream(
@@ -263,6 +271,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
                     lifecycleGeneration,
                     stream,
                     cancelled,
+                    finalHandled,
                     session,
                     resumeGraceNanos);
             synchronized (streamLifecycleMonitor) {
@@ -303,6 +312,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         try {
             active.stopRecognition();
             sendStopAck(session, inputTurnId);
+            scheduleFinalResultTimeout(active);
         } catch (BusinessException exception) {
             active.cancelled.set(true);
             cancelInputLifecycle(active);
@@ -404,6 +414,41 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         response.put("type", "STOP_ACK");
         response.put("inputTurnId", inputTurnId);
         send(session, response);
+    }
+
+    private void handleRecognitionFailure(
+            AtomicBoolean cancelled,
+            AtomicBoolean finalHandled,
+            StreamLifecycle lifecycle,
+            WebSocketSession fallbackSession,
+            String userId,
+            String sessionId,
+            String inputTurnId,
+            long lifecycleGeneration) {
+        if (cancelled.get() || !finalHandled.compareAndSet(false, true)) {
+            requestCloseActive(lifecycle);
+            return;
+        }
+        cancelled.set(true);
+        log.warn("Azure Speech did not produce a final recognition result. sessionId={}, inputTurnId={}",
+                sessionId, inputTurnId);
+        sendError(responseSession(lifecycle.active.get(), fallbackSession), ErrorCode.SPEECH_RECOGNITION_FAILED);
+        cancelInputLifecycle(userId, sessionId, inputTurnId, lifecycleGeneration);
+        requestCloseActive(lifecycle);
+    }
+
+    private void scheduleFinalResultTimeout(ActiveStream active) {
+        CompletableFuture.delayedExecutor(finalResultTimeoutMillis, TimeUnit.MILLISECONDS).execute(() -> {
+            if (active.cancelled.get() || !active.finalHandled.compareAndSet(false, true)) {
+                return;
+            }
+            active.cancelled.set(true);
+            log.warn("Voice stream final result timed out. sessionId={}, inputTurnId={}",
+                    active.voiceSessionId, active.inputTurnId);
+            sendError(active.attachedSession(), ErrorCode.SPEECH_RECOGNITION_FAILED);
+            cancelInputLifecycle(active);
+            scheduleCloseActive(active);
+        });
     }
 
     private void sendCancelledAi(WebSocketSession session, String interruptedAiTurnId) {
@@ -673,6 +718,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         private final long lifecycleGeneration;
         private final AzureSpeechRecognitionStream stream;
         private final AtomicBoolean cancelled;
+        private final AtomicBoolean finalHandled;
         private final long resumeGraceNanos;
         private final AtomicBoolean stopRequested = new AtomicBoolean();
         private final AtomicBoolean recognitionStopped = new AtomicBoolean();
@@ -690,6 +736,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
                 long lifecycleGeneration,
                 AzureSpeechRecognitionStream stream,
                 AtomicBoolean cancelled,
+                AtomicBoolean finalHandled,
                 WebSocketSession attachedSession,
                 long resumeGraceNanos) {
             this.userId = userId;
@@ -698,6 +745,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             this.lifecycleGeneration = lifecycleGeneration;
             this.stream = stream;
             this.cancelled = cancelled;
+            this.finalHandled = finalHandled;
             this.attachedSession = attachedSession;
             this.resumeGraceNanos = resumeGraceNanos;
         }
