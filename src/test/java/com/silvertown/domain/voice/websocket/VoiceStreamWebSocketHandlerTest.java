@@ -348,6 +348,31 @@ class VoiceStreamWebSocketHandlerTest {
     }
 
     @Test
+    void ignoresThe1011CloseWhenFinalProcessingFailsAfterTheSocketDetaches() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        ArgumentCaptor<AzureSpeechRecognitionListener> listener =
+                ArgumentCaptor.forClass(AzureSpeechRecognitionListener.class);
+        when(azureSpeechClient.open(listener.capture())).thenReturn(stream);
+        doThrow(new IllegalStateException("unexpected"))
+                .when(voiceTurnService)
+                .processAzureTransferFinal(
+                        USER_ID,
+                        SESSION_ID,
+                        FIRST_TURN_ID,
+                        0L,
+                        new AzureSpeechDetailedResult("분석할 발화", new BigDecimal("0.95"), List.of()));
+
+        handler.handleMessage(session, start(FIRST_TURN_ID));
+        handler.afterConnectionClosed(session, CloseStatus.NORMAL);
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> listener.getValue().onFinalResult(
+                new AzureSpeechDetailedResult("분석할 발화", new BigDecimal("0.95"), List.of())));
+
+        verify(voiceStreamLifecycleService).cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        verify(stream, timeout(1_000)).close();
+    }
+
+    @Test
     void cleansUpTheInputTurnWhenVoiceAnalysisFails() throws Exception {
         WebSocketSession session = webSocketSession("websocket-1");
         ArgumentCaptor<AzureSpeechRecognitionListener> listener =
