@@ -543,6 +543,9 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             }
         }
         sendError(session, ErrorCode.INTERNAL_SERVER_ERROR);
+        if (session == null) {
+            return;
+        }
         try {
             session.close(CloseStatus.SERVER_ERROR);
         } catch (IOException exception) {
