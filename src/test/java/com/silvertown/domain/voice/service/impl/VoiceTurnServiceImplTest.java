@@ -698,8 +698,8 @@ class VoiceTurnServiceImplTest {
         verify(transferService, never()).validateAmount(any());
         verify(transferService, never()).prepare(any(), any());
         verify(transferService, never()).confirm(any(), any(), any());
-        verify(transferService, never()).authenticate(any(), any(), any());
-        verify(transferService, never()).execute(any(), any(), any());
+        verify(transferService, never()).authenticate(any(), any(), any(), any());
+        verify(transferService, never()).execute(any(), any(), any(), any());
         verify(voiceTurnAnalysisPort, never()).analyze(any());
     }
 
@@ -725,8 +725,31 @@ class VoiceTurnServiceImplTest {
         verify(transferService).validateAmount(any());
         verify(transferService, never()).prepare(any(), any());
         verify(transferService, never()).confirm(any(), any(), any());
-        verify(transferService, never()).authenticate(any(), any(), any());
-        verify(transferService, never()).execute(any(), any(), any());
+        verify(transferService, never()).authenticate(any(), any(), any(), any());
+        verify(transferService, never()).execute(any(), any(), any(), any());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+    }
+
+    @Test
+    void guidanceCommandDuringFinalApprovalDoesNotConfirmTransferOrCallLlm() throws Exception {
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(finalApprovalSession(), processingFinalApprovalSession());
+        when(voiceSessionMapper.claimForTurn(eq(USER_ID), eq(SESSION_ID), any())).thenReturn(1);
+        when(voiceInteractionCardMapper.findBySessionId(SESSION_ID)).thenReturn(transferReadbackCard());
+        when(transferService.get(
+                UUID.fromString(USER_ID), UUID.fromString("70000000-0000-0000-0000-000000000001")))
+                .thenReturn(canonicalReadback());
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(6, 7);
+        when(voiceSessionMapper.completeTurn(USER_ID, SESSION_ID, DialogueStep.WAITING_FINAL_APPROVAL.name()))
+                .thenReturn(1);
+
+        VoiceTurnResponse response = service.process(USER_ID, SESSION_ID, request("천천히 말해줘"));
+
+        assertEquals(DialogueStep.WAITING_FINAL_APPROVAL, response.getState());
+        assertEquals("ASK_FINAL_APPROVAL", response.getNextAction());
+        verify(transferService, never()).confirm(any(), any(), any());
+        verify(transferService, never()).authenticate(any(), any(), any(), any());
+        verify(transferService, never()).execute(any(), any(), any(), any());
         verify(voiceTurnAnalysisPort, never()).analyze(any());
     }
 
