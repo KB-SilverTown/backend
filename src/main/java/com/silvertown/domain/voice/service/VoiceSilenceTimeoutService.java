@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -30,7 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /** Applies the agreed 15-second continuation prompt before closing an idle voice session. */
 @Slf4j
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class VoiceSilenceTimeoutService {
     private static final String AI_SPEAKER = "AI";
     private static final int SILENCE_TIMEOUT_MILLIS = 15_000;

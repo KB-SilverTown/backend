@@ -22,11 +22,12 @@ import com.silvertown.global.common.exception.ErrorCode;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class VoiceSessionEventServiceImpl implements VoiceSessionEventService {
     private static final String AI_SPEAKER = "AI";
 
