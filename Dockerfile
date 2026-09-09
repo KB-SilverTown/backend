@@ -9,14 +9,12 @@ RUN chmod +x gradlew
 COPY src ./src
 RUN ./gradlew --no-daemon clean war
 
-FROM tomcat:9.0.115-jdk17-temurin
+FROM tomcat:9.0-jdk17-temurin-jammy
 
 RUN rm -rf /usr/local/tomcat/webapps/*
 
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
 COPY --from=build /workspace/build/libs/*.war /usr/local/tomcat/webapps/ROOT.war
 
 EXPOSE 8080
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["sh", "-c", "sed -i \"s/port=\\\"8080\\\" protocol=\\\"HTTP\\/1.1\\\"/port=\\\"${PORT:-8080}\\\" protocol=\\\"HTTP\\/1.1\\\"/\" /usr/local/tomcat/conf/server.xml && exec catalina.sh run"]

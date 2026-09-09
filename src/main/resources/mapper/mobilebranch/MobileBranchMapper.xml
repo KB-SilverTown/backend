@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.mobilebranch.mapper.MobileBranchMapper">
+  <resultMap id="mobileBranchScheduleMap" type="com.silvertown.domain.mobilebranch.vo.MobileBranchScheduleRow">
+    <id property="scheduleId" column="schedule_id"/>
+    <result property="branchId" column="branch_id"/>
+    <result property="name" column="branch_name"/>
+    <result property="branchType" column="branch_type"/>
+    <result property="address" column="address"/>
+    <result property="latitude" column="latitude"/>
+    <result property="longitude" column="longitude"/>
+    <result property="phone" column="phone"/>
+    <result property="serviceDate" column="service_date"/>
+    <result property="startAt" column="start_at"/>
+    <result property="endAt" column="end_at"/>
+    <result property="serviceId" column="service_id"/>
+    <result property="serviceCode" column="service_code"/>
+    <result property="serviceName" column="service_name"/>
+    <result property="serviceCategory" column="service_category"/>
+    <result property="preparationNote" column="preparation_note"/>
+  </resultMap>
+
+  <select id="findUpcomingActiveSchedules" resultMap="mobileBranchScheduleMap">
+    SELECT
+      mb.branch_id,
+      mb.name AS branch_name,
+      mb.branch_type,
+      mb.address,
+      mb.latitude,
+      mb.longitude,
+      mb.phone,
+      bs.schedule_id,
+      bs.service_date,
+      bs.start_at,
+      bs.end_at,
+      fs.service_id,
+      fs.service_code,
+      fs.service_name,
+      fs.category AS service_category,
+      bss.preparation_note
+    FROM mobile_branches mb
+    INNER JOIN branch_schedules bs ON bs.branch_id = mb.branch_id
+    LEFT JOIN branch_services bss ON bss.branch_id = mb.branch_id
+    LEFT JOIN financial_service_types fs
+      ON fs.service_id = bss.service_id
+      AND fs.is_active = TRUE
+    WHERE mb.is_active = TRUE
+      AND bs.status = 'SCHEDULED'
+      AND bs.end_at &gt; #{now, jdbcType=TIMESTAMP}
+    <if test="serviceCode != null">
+      AND EXISTS (
+        SELECT 1
+        FROM branch_services filter_bss
+        INNER JOIN financial_service_types filter_fs
+          ON filter_fs.service_id = filter_bss.service_id
+        WHERE filter_bss.branch_id = mb.branch_id
+          AND filter_fs.is_active = TRUE
+          AND filter_fs.service_code = #{serviceCode, jdbcType=VARCHAR}
+      )
+    </if>
+    ORDER BY bs.start_at ASC, mb.branch_id ASC, fs.service_code ASC
+  </select>
+</mapper>

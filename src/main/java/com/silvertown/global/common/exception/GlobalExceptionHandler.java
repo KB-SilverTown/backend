@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.multipart.MultipartException;
 
 @Slf4j
 @RestControllerAdvice
@@ -79,6 +80,17 @@ public class GlobalExceptionHandler {
                 .status(ErrorCode.INVALID_REQUEST.getStatus())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiErrorResponse.of(ErrorCode.INVALID_REQUEST, getRequestId(request)));
+    }
+
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ApiErrorResponse> handleMultipartException(
+            MultipartException exception,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity
+                .status(ErrorCode.BILL_IMAGE_INVALID.getStatus())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ApiErrorResponse.of(ErrorCode.BILL_IMAGE_INVALID, getRequestId(request)));
     }
 
     @ExceptionHandler(Exception.class)

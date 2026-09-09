@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.voice.mapper.IdempotencyRecordMapper">
+
+    <resultMap id="idempotencyRecordResultMap" type="com.silvertown.domain.voice.vo.IdempotencyRecordVo">
+        <id property="idempotencyRecordId" column="idempotency_record_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="operation" column="operation"/>
+        <result property="idempotencyKey" column="idempotency_key"/>
+        <result property="requestHash" column="request_hash"/>
+        <result property="status" column="status"/>
+        <result property="resourceType" column="resource_type"/>
+        <result property="resourceId" column="resource_id"/>
+        <result property="responseStatus" column="response_status"/>
+        <result property="responseBody" column="response_body"/>
+        <result property="expiresAt" column="expires_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="findByUserOperationAndKey" resultMap="idempotencyRecordResultMap">
+        SELECT
+            idempotency_record_id,
+            user_id,
+            operation,
+            idempotency_key,
+            request_hash,
+            status,
+            resource_type,
+            resource_id,
+            response_status,
+            response_body,
+            expires_at,
+            created_at,
+            updated_at
+        FROM idempotency_records
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND operation = #{operation}
+          AND idempotency_key = #{idempotencyKey}
+    </select>
+
+    <insert id="insert" parameterType="com.silvertown.domain.voice.vo.IdempotencyRecordVo">
+        INSERT INTO idempotency_records (
+            idempotency_record_id,
+            user_id,
+            operation,
+            idempotency_key,
+            request_hash,
+            status,
+            resource_type,
+            resource_id,
+            response_status,
+            response_body,
+            expires_at
+        ) VALUES (
+            #{idempotencyRecordId, jdbcType=CHAR},
+            #{userId, jdbcType=CHAR},
+            #{operation},
+            #{idempotencyKey},
+            #{requestHash},
+            #{status},
+            #{resourceType},
+            #{resourceId, jdbcType=CHAR},
+            #{responseStatus},
+            #{responseBody, jdbcType=LONGVARCHAR},
+            #{expiresAt}
+        )
+    </insert>
+
+    <update id="complete">
+        UPDATE idempotency_records
+        SET status = 'COMPLETED',
+            resource_type = #{resourceType},
+            resource_id = #{resourceId, jdbcType=CHAR},
+            response_status = #{responseStatus},
+            response_body = #{responseBody, jdbcType=LONGVARCHAR},
+            updated_at = #{updatedAt}
+        WHERE idempotency_record_id = #{idempotencyRecordId, jdbcType=CHAR}
+          AND status = 'IN_PROGRESS'
+    </update>
+
+    <update id="fail">
+        UPDATE idempotency_records
+        SET status = 'FAILED',
+            response_status = #{responseStatus},
+            response_body = #{responseBody, jdbcType=LONGVARCHAR},
+            updated_at = #{updatedAt}
+        WHERE idempotency_record_id = #{idempotencyRecordId, jdbcType=CHAR}
+          AND status = 'IN_PROGRESS'
+    </update>
+</mapper>
