@@ -158,6 +158,87 @@ class VoiceUiActionServiceImplTest {
     }
 
     @Test
+    void acceptingRecipientWithValidatedAmountReconfirmsThatAmountBeforePreparingTransfer() throws Exception {
+        VoiceInteractionCardVo card = recipientCard();
+        card.setCandidateItems("""
+                [{"id":"50000000-0000-0000-0000-000000000001","displayName":"김철수",
+                  "pendingAmountCandidates":[50000]},
+                 {"id":"50000000-0000-0000-0000-000000000002","displayName":"김영희",
+                  "pendingAmountCandidates":[50000]}]
+                """);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(activeSession());
+        when(voiceInteractionCardMapper.findBySessionIdForUpdate(SESSION_ID)).thenReturn(card);
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(2);
+        when(voiceSessionMapper.updateStatusAndStep(any(), any(), any(), any())).thenReturn(1);
+
+        VoiceUiActionResponse response = service.process(USER_ID, SESSION_ID, acceptRequest(ACTION_ID));
+
+        assertEquals(com.silvertown.domain.voice.enums.DialogueStep.RECONFIRMING, response.getState());
+        assertEquals("AMOUNT_RECONFIRM", response.getDisplayCard().path("type").asText());
+        assertEquals(50000L, response.getDisplayCard().path("items").get(0).path("amount").longValue());
+        assertEquals("RECONFIRM_INPUT", response.getNextAction());
+        verify(transferService, never()).prepare(any(), any());
+    }
+
+    @Test
+    void confirmedRecipientAndPreservedAmountReachRiskAssessmentAndFinalReadback() throws Exception {
+        VoiceInteractionCardVo recipient = recipientCard();
+        recipient.setCandidateItems("""
+                [{"id":"50000000-0000-0000-0000-000000000001","displayName":"김철수",
+                  "pendingAmountCandidates":[50000]}]
+                """);
+        AtomicReference<VoiceInteractionCardVo> currentCard = new AtomicReference<>(recipient);
+        VoiceSessionVo recipientSession = activeSession();
+        recipientSession.setFromAccountId("60000000-0000-0000-0000-000000000001");
+        VoiceSessionVo amountSession = activeSession();
+        amountSession.setFromAccountId("60000000-0000-0000-0000-000000000001");
+        amountSession.setCurrentStep("RECONFIRMING");
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(recipientSession, amountSession);
+        when(voiceInteractionCardMapper.findBySessionIdForUpdate(SESSION_ID))
+                .thenAnswer(invocation -> currentCard.get());
+        when(voiceInteractionCardMapper.replace(any(VoiceInteractionCardVo.class))).thenAnswer(invocation -> {
+            currentCard.set(invocation.getArgument(0));
+            return 1;
+        });
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(2, 3);
+        when(voiceSessionMapper.updateStatusAndStep(any(), any(), any(), any())).thenReturn(1);
+        when(voiceSessionMapper.updateTransferId(any(), any(), any())).thenReturn(1);
+        when(transferService.validateAmount(any())).thenReturn(new AmountValidationResponse(
+                50_000L, java.util.List.of(50_000L), 50_000L, false));
+        when(transferService.prepare(any(), any())).thenReturn(new TransferPrepareResponse(
+                java.util.UUID.fromString("70000000-0000-0000-0000-000000000001"), "DRAFT", "RISK_CHECK",
+                new TransferRecipientResponse(java.util.UUID.fromString(FIRST_RECIPIENT_ID),
+                        "김철수", "004", "***-***-1234"),
+                50_000L, false, "김철수 님에게 50,000원을 보내시겠어요?", null));
+        when(riskScoreService.assess(any(), any())).thenReturn(new RiskScoreResponse(
+                0, 0, "LOW", "RULE", false, java.util.List.of(), null, "ALLOW", false));
+        when(transferService.get(any(), any())).thenReturn(new TransferResponse(
+                java.util.UUID.fromString("70000000-0000-0000-0000-000000000001"), "DRAFT", "RISK_CHECK",
+                java.util.UUID.fromString("60000000-0000-0000-0000-000000000001"),
+                new TransferRecipientResponse(java.util.UUID.fromString(FIRST_RECIPIENT_ID),
+                        "김철수", "004", "***-***-1234"),
+                50_000L, null, java.util.List.of(), false,
+                "김철수 님에게 50,000원을 보내시겠어요?", null, null, null));
+
+        VoiceUiActionResponse amountReconfirmation = service.process(
+                USER_ID, SESSION_ID, acceptRequest(ACTION_ID));
+        VoiceUiActionResponse readback = service.process(USER_ID, SESSION_ID, acceptRequest(
+                "40000000-0000-0000-0000-000000000002",
+                amountReconfirmation.getResponseTurnId(),
+                amountReconfirmation.getDisplayCard().path("cardId").asText(),
+                amountReconfirmation.getDisplayCard().path("cardVersion").asInt()));
+
+        assertEquals(com.silvertown.domain.voice.enums.DialogueStep.RECONFIRMING,
+                amountReconfirmation.getState());
+        assertEquals(com.silvertown.domain.voice.enums.DialogueStep.WAITING_FINAL_APPROVAL,
+                readback.getState());
+        assertEquals("ASK_FINAL_APPROVAL", readback.getNextAction());
+        verify(transferService).prepare(any(), any());
+        verify(riskScoreService).assess(any(), any());
+    }
+
+    @Test
     void reasksForAmountWithoutPreparingTransferWhenAmountValidationRequiresReconfirmation() throws Exception {
         VoiceSessionVo session = activeSession();
         session.setFromAccountId("60000000-0000-0000-0000-000000000001");
@@ -318,10 +399,15 @@ class VoiceUiActionServiceImplTest {
     }
 
     private VoiceUiActionRequest acceptRequest(String actionId) throws Exception {
+        return acceptRequest(actionId, SOURCE_TURN_ID, CARD_ID, 1);
+    }
+
+    private VoiceUiActionRequest acceptRequest(
+            String actionId, String sourceTurnId, String cardId, int cardVersion) throws Exception {
         return objectMapper.readValue("""
-                {"actionId":"%s","sourceTurnId":"%s","cardId":"%s","cardVersion":1,
+                {"actionId":"%s","sourceTurnId":"%s","cardId":"%s","cardVersion":%d,
                  "actionType":"ACCEPT_FOCUSED_SELECTION"}
-                """.formatted(actionId, SOURCE_TURN_ID, CARD_ID), VoiceUiActionRequest.class);
+                """.formatted(actionId, sourceTurnId, cardId, cardVersion), VoiceUiActionRequest.class);
     }
 
     private VoiceUiActionRequest rejectRequest(String actionId) throws Exception {

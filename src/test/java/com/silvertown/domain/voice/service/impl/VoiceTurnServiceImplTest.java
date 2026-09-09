@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.silvertown.domain.recipient.dto.RecipientCandidateResponse;
 import com.silvertown.domain.transfer.dto.AmountValidationResponse;
 import com.silvertown.domain.transfer.dto.TransferConfirmRequest;
 import com.silvertown.domain.transfer.dto.TransferPrepareResponse;
@@ -698,8 +699,8 @@ class VoiceTurnServiceImplTest {
         verify(transferService, never()).validateAmount(any());
         verify(transferService, never()).prepare(any(), any());
         verify(transferService, never()).confirm(any(), any(), any());
-        verify(transferService, never()).authenticate(any(), any(), any());
-        verify(transferService, never()).execute(any(), any(), any());
+        verify(transferService, never()).authenticate(any(), any(), any(), any());
+        verify(transferService, never()).execute(any(), any(), any(), any());
         verify(voiceTurnAnalysisPort, never()).analyze(any());
     }
 
@@ -725,8 +726,8 @@ class VoiceTurnServiceImplTest {
         verify(transferService).validateAmount(any());
         verify(transferService, never()).prepare(any(), any());
         verify(transferService, never()).confirm(any(), any(), any());
-        verify(transferService, never()).authenticate(any(), any(), any());
-        verify(transferService, never()).execute(any(), any(), any());
+        verify(transferService, never()).authenticate(any(), any(), any(), any());
+        verify(transferService, never()).execute(any(), any(), any(), any());
         verify(voiceTurnAnalysisPort, never()).analyze(any());
     }
 
@@ -875,6 +876,62 @@ class VoiceTurnServiceImplTest {
         assertEquals(1, persistedDisplayCard.get("amountCandidates").size());
         assertEquals(50_000L, persistedDisplayCard.get("amountCandidates").get(0).longValue());
         assertFalse(persistedDisplayCard.toString().contains("900000"));
+    }
+
+    @Test
+    void retainsTheAzureValidatedAmountOnTheRecipientCard() throws Exception {
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(backendTransferSession(), processingBackendTransferSession());
+        when(voiceSessionMapper.claimForTurn(eq(USER_ID), eq(SESSION_ID), any())).thenReturn(1);
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(2, 3);
+        when(amountCandidateGenerator.decide(any())).thenReturn(new AmountCandidateDecision(
+                AmountCandidateDecisionType.CONFIRMED, 50_000L, List.of(50_000L), false));
+        when(transferService.validateAmount(any())).thenReturn(new AmountValidationResponse(
+                50_000L, List.of(50_000L), 50_000L, false));
+        when(voiceTurnAnalysisPort.analyze(any())).thenReturn(analysisWithRecipientAndUntrustedAmount());
+        when(recipientService.findCandidates(any(), any())).thenReturn(List.of(new RecipientCandidateResponse(
+                java.util.UUID.fromString("50000000-0000-0000-0000-000000000001"),
+                "김철수", "아들", "004", "***-***-1234", "HISTORY", null)));
+        when(voiceSessionMapper.completeTurn(USER_ID, SESSION_ID, DialogueStep.AWAITING_RECIPIENT.name()))
+                .thenReturn(1);
+
+        VoiceTurnResponse response = service.processAzureTransferFinal(
+                USER_ID, SESSION_ID, TURN_ID, azureResult());
+
+        assertEquals(DialogueStep.AWAITING_RECIPIENT, response.getState());
+        assertEquals("RECIPIENT_CANDIDATES", response.getDisplayCard().path("type").asText());
+        assertEquals(50_000L, response.getDisplayCard()
+                .path("pendingAmountCandidates").get(0).longValue());
+        verify(transferService, never()).prepare(any(), any());
+    }
+
+    @Test
+    void recipientVoiceAcceptanceMovesToAmountReconfirmationWithoutPreparingTransfer() throws Exception {
+        VoiceSessionVo listening = backendTransferSession();
+        listening.setCurrentStep(DialogueStep.AWAITING_RECIPIENT.name());
+        VoiceSessionVo processing = processingBackendTransferSession();
+        processing.setCurrentStep(DialogueStep.AWAITING_RECIPIENT.name());
+        VoiceInteractionCardVo card = focusedRecipientCard();
+        card.setCandidateItems("""
+                [{"id":"50000000-0000-0000-0000-000000000001","displayName":"김철수",
+                  "pendingAmountCandidates":[50000]}]
+                """);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(listening, processing);
+        when(voiceSessionMapper.claimForTurn(eq(USER_ID), eq(SESSION_ID), any())).thenReturn(1);
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(2, 3);
+        when(voiceInteractionCardMapper.findBySessionId(SESSION_ID)).thenReturn(card);
+        when(voiceInteractionCardMapper.findBySessionIdForUpdate(SESSION_ID)).thenReturn(card);
+        when(voiceInteractionCardMapper.replace(any(VoiceInteractionCardVo.class))).thenReturn(1);
+        when(voiceSessionMapper.completeTurn(USER_ID, SESSION_ID, DialogueStep.RECONFIRMING.name()))
+                .thenReturn(1);
+
+        VoiceTurnResponse response = service.processAzureTransferFinal(USER_ID, SESSION_ID, TURN_ID,
+                new AzureSpeechDetailedResult("네", new BigDecimal("0.95"), List.of()));
+
+        assertEquals(DialogueStep.RECONFIRMING, response.getState());
+        assertEquals("AMOUNT_RECONFIRM", response.getDisplayCard().path("type").asText());
+        assertEquals(50_000L, response.getDisplayCard().path("amountCandidates").get(0).longValue());
+        verify(transferService, never()).prepare(any(), any());
     }
 
     @Test
@@ -1127,6 +1184,21 @@ class VoiceTurnServiceImplTest {
                 objectMapper.valueToTree(Map.of("amount", 900_000L)),
                 VoiceNextAction.ASK_RECIPIENT,
                 VoiceRequestedFunction.NONE);
+    }
+
+    private VoiceTurnAnalysisResult analysisWithRecipientAndUntrustedAmount() {
+        return new VoiceTurnAnalysisResult(
+                DialogueStep.AWAITING_RECIPIENT,
+                VoiceIntent.TRANSFER,
+                Map.of("recipient", "김철수", "amount", 900_000L),
+                new BigDecimal("0.95"),
+                "받는 분을 골라 주세요.",
+                "<speak>받는 분을 골라 주세요.</speak>",
+                objectMapper.valueToTree(Map.of()),
+                objectMapper.valueToTree(Map.of("name", "recipientConfirmation")),
+                objectMapper.valueToTree(Map.of()),
+                VoiceNextAction.ASK_RECIPIENT,
+                VoiceRequestedFunction.TRANSFER_RECIPIENT_CANDIDATES);
     }
 
     private DialogueTurnVo userTurn() {
