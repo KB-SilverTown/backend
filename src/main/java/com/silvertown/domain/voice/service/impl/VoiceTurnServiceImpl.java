@@ -18,6 +18,7 @@ import com.silvertown.domain.voice.adaptation.VoiceGuidanceCommandParser;
 import com.silvertown.domain.voice.adaptation.VoiceAdaptationPolicy;
 import com.silvertown.domain.voice.dto.VoiceTurnRequest;
 import com.silvertown.domain.voice.dto.VoiceTurnResponse;
+import com.silvertown.domain.voice.enums.DialogueInputType;
 import com.silvertown.domain.voice.enums.DialogueStep;
 import com.silvertown.domain.voice.enums.SttMode;
 import com.silvertown.domain.voice.enums.VoiceFlowType;
@@ -199,7 +200,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         try {
             VoiceGuidanceCommand command = voiceGuidanceCommandParser.parse(request.getTranscript()).orElse(null);
             if (command != null && !azureTransferFinal) {
-                rejectRawBackendTransferTurn(claim.voiceSession());
+                rejectRawBackendTransferVoiceTurn(claim.voiceSession(), request);
             }
             VoiceTurnAnalysisResult resolved = command == null
                     ? analysisResolver.apply(claim.voiceSession())
@@ -294,7 +295,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
     }
 
     private VoiceTurnAnalysisResult analyzeRawTurn(VoiceTurnRequest request, VoiceSessionVo voiceSession) {
-        rejectRawBackendTransferTurn(voiceSession);
+        rejectRawBackendTransferVoiceTurn(voiceSession, request);
         VoiceTurnAnalysisResult analysis = analyze(request, voiceSession);
         if (VoiceFlowType.valueOf(voiceSession.getFlowType()) != VoiceFlowType.GENERAL_FINANCE) {
             return analysis;
@@ -770,10 +771,16 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 || normalized.equals("취소") || normalized.equals("취소해줘") || normalized.equals("그만");
     }
 
-    /** TRANSFER + BACKEND_STREAM may enter only through the Azure FINAL boundary. */
-    private void rejectRawBackendTransferTurn(VoiceSessionVo voiceSession) {
+    /**
+     * Raw microphone input for a backend-stream transfer must enter through the Azure FINAL
+     * boundary. Text is the explicit accessibility/failure fallback and uses the documented HTTP
+     * turn endpoint after the frontend has cancelled and released its active audio stream.
+     */
+    private void rejectRawBackendTransferVoiceTurn(
+            VoiceSessionVo voiceSession, VoiceTurnRequest request) {
         if (VoiceFlowType.valueOf(voiceSession.getFlowType()) == VoiceFlowType.TRANSFER
-                && "BACKEND_STREAM".equals(voiceSession.getSttMode())) {
+                && "BACKEND_STREAM".equals(voiceSession.getSttMode())
+                && request.getInputType() == DialogueInputType.VOICE) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
     }
