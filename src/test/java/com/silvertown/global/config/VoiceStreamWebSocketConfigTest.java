@@ -9,6 +9,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.silvertown.domain.voice.websocket.VoiceStreamWebSocketHandler;
+import com.silvertown.domain.voice.websocket.VoiceStreamHandshakeHandler;
+import com.silvertown.domain.voice.websocket.VoiceStreamHandshakeInterceptor;
 import java.util.HashMap;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistration;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
+import org.springframework.web.socket.server.HandshakeHandler;
 import org.springframework.web.socket.server.support.OriginHandshakeInterceptor;
 
 class VoiceStreamWebSocketConfigTest {
@@ -68,15 +71,23 @@ class VoiceStreamWebSocketConfigTest {
 
     private OriginHandshakeInterceptor registeredOriginInterceptor() throws Exception {
         VoiceStreamWebSocketHandler handler = mock(VoiceStreamWebSocketHandler.class);
+        VoiceStreamHandshakeInterceptor ticketInterceptor = mock(VoiceStreamHandshakeInterceptor.class);
+        VoiceStreamHandshakeHandler handshakeHandler = mock(VoiceStreamHandshakeHandler.class);
         WebSocketHandlerRegistry registry = mock(WebSocketHandlerRegistry.class);
         WebSocketHandlerRegistration registration = mock(WebSocketHandlerRegistration.class);
         when(registry.addHandler(handler, "/api/voice/sessions/*/stream")).thenReturn(registration);
+        when(registration.addInterceptors(ticketInterceptor)).thenReturn(registration);
+        when(registration.setHandshakeHandler(org.mockito.ArgumentMatchers.any(HandshakeHandler.class)))
+                .thenReturn(registration);
 
-        VoiceStreamWebSocketConfig config = new VoiceStreamWebSocketConfig(handler);
+        VoiceStreamWebSocketConfig config = new VoiceStreamWebSocketConfig(
+                handler, ticketInterceptor, handshakeHandler);
         config.registerWebSocketHandlers(registry);
 
         ArgumentCaptor<String[]> originCaptor = ArgumentCaptor.forClass(String[].class);
         verify(registry).addHandler(handler, "/api/voice/sessions/*/stream");
+        verify(registration).addInterceptors(ticketInterceptor);
+        verify(registration).setHandshakeHandler(handshakeHandler);
         verify(registration).setAllowedOriginPatterns(originCaptor.capture());
         assertNotNull(originCaptor.getValue());
 

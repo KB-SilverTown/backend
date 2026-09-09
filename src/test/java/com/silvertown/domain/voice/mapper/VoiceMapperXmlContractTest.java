@@ -20,12 +20,14 @@ class VoiceMapperXmlContractTest {
         configuration.addMapper(VoiceSessionMapper.class);
         configuration.addMapper(DialogueTurnMapper.class);
         configuration.addMapper(IdempotencyRecordMapper.class);
+        configuration.addMapper(VoiceStreamTicketMapper.class);
 
         for (String resource : List.of(
                 "mapper/voice/UserVoiceSettingsMapper.xml",
                 "mapper/voice/VoiceSessionMapper.xml",
                 "mapper/voice/DialogueTurnMapper.xml",
-                "mapper/voice/IdempotencyRecordMapper.xml")) {
+                "mapper/voice/IdempotencyRecordMapper.xml",
+                "mapper/voice/VoiceStreamTicketMapper.xml")) {
             try (Reader reader = Resources.getResourceAsReader(resource)) {
                 new XMLMapperBuilder(
                         reader, configuration, resource, configuration.getSqlFragments()).parse();
@@ -60,6 +62,8 @@ class VoiceMapperXmlContractTest {
                 "com.silvertown.domain.voice.mapper.DialogueTurnMapper.findLatestReplayableAiTurn"));
         assertTrue(configuration.hasStatement(
                 "com.silvertown.domain.voice.mapper.IdempotencyRecordMapper.complete"));
+        assertTrue(configuration.hasStatement(
+                "com.silvertown.domain.voice.mapper.VoiceStreamTicketMapper.consumeIfUnusedAndUnexpired"));
     }
 
     @Test
