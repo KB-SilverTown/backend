@@ -58,6 +58,18 @@ class TransferMapperXmlContractTest {
 
         assertTrue(whereStart >= 0);
         assertTrue(update.substring(whereStart).contains("'RECONFIRM'"));
+        assertTrue(update.contains("confirmation_token_hash"));
+        assertTrue(update.contains("confirmation_token_expires_at"));
+    }
+
+    @Test
+    void transferQueriesLoadTheStoredConfirmationTokenMetadata() throws Exception {
+        String xml = readXml();
+
+        assertTrue(xml.contains("property=\"confirmationTokenHash\" column=\"confirmation_token_hash\""));
+        assertTrue(xml.contains("property=\"confirmationTokenExpiresAt\" column=\"confirmation_token_expires_at\""));
+        assertTrue(statement(xml, "update", "refreshConfirmationToken")
+                .contains("status = 'CONFIRMED'"));
     }
 
     @Test

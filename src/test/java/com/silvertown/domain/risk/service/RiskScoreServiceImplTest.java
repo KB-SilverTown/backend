@@ -227,7 +227,14 @@ class RiskScoreServiceImplTest {
         }
 
         @Override
-        public int confirmIfRiskChecked(String userId, String transferId) {
+        public int confirmIfRiskChecked(String userId, String transferId,
+                String confirmationTokenHash, OffsetDateTime confirmationTokenExpiresAt) {
+            return 0;
+        }
+
+        @Override
+        public int refreshConfirmationToken(String userId, String transferId,
+                String confirmationTokenHash, OffsetDateTime confirmationTokenExpiresAt) {
             return 0;
         }
 

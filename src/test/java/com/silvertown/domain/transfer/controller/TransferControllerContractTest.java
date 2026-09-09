@@ -69,10 +69,12 @@ class TransferControllerContractTest {
                 return null;
             }
             public void registerOrChangePin(UUID userId, TransferPinRequest request) { }
-            public TransferAuthenticationResponse authenticate(UUID userId, UUID transferId, TransferPinRequest request) {
+            public TransferAuthenticationResponse authenticate(
+                    UUID userId, UUID transferId, String confirmationToken, TransferPinRequest request) {
                 return null;
             }
-            public TransferResultResponse execute(UUID userId, UUID transferId, String idempotencyKey) {
+            public TransferResultResponse execute(
+                    UUID userId, UUID transferId, String confirmationToken, String idempotencyKey) {
                 return null;
             }
             public GuardianVerificationStartResponse startGuardianVerification(UUID userId, UUID transferId,
