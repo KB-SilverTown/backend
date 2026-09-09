@@ -69,6 +69,7 @@ public interface VoiceSessionMapper {
             @Param("inputTurnId") String inputTurnId,
             @Param("lifecycleGeneration") long lifecycleGeneration,
             @Param("aiTurnId") String aiTurnId,
+            @Param("currentStep") String currentStep,
             @Param("now") LocalDateTime now);
 
     int interruptActiveAiTurn(

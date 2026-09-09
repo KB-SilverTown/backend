@@ -567,9 +567,6 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
 
     private String requiredIdentifier(JsonNode event, String fieldName) {
         String value = event.path(fieldName).asText();
-        if (value.isBlank()) {
-            value = event.path("turnId").asText();
-        }
         if (!isCanonicalUuid(value)) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }

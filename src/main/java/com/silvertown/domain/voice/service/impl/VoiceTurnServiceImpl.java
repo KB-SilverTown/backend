@@ -164,13 +164,19 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         VoiceTurnRequest request = VoiceTurnRequest.azureFinal(inputTurnId, result.transcript(), confidence);
         TurnClaim claim = claimStreamFinal(userId, sessionId, request, lifecycleGeneration);
         try {
-            VoiceTurnAnalysisResult contextual = resolveVoiceCardContext(request, claim.voiceSession());
-            VoiceTurnAnalysisResult resolved = contextual != null
-                    ? contextual
-                    : analyzeAzureTransferFinal(request, result, claim.voiceSession());
+            VoiceGuidanceCommand command = voiceGuidanceCommandParser.parse(request.getTranscript()).orElse(null);
+            VoiceTurnAnalysisResult resolved;
+            if (command != null) {
+                resolved = adaptationCommandResponse(request, claim.voiceSession());
+            } else {
+                VoiceTurnAnalysisResult contextual = resolveVoiceCardContext(request, claim.voiceSession());
+                resolved = contextual != null
+                        ? contextual
+                        : analyzeAzureTransferFinal(request, result, claim.voiceSession());
+            }
             VoiceTurnAnalysisResult analysis = enrichRecipientCandidates(claim.voiceSession(), resolved);
             VoiceTurnResponse response = persistAndCompleteTurn(
-                    userId, sessionId, request, claim.voiceSession(), analysis, null, lifecycleGeneration);
+                    userId, sessionId, request, claim.voiceSession(), analysis, command, lifecycleGeneration);
             completeAdaptationSignalHandling(claim.voiceSession(), response);
             return response;
         } catch (RuntimeException exception) {
@@ -1025,6 +1031,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                         request.getTurnId(),
                         lifecycleGeneration,
                         aiTurn.getTurnId(),
+                        renderedAnalysis.getNextStep().name(),
                         LocalDateTime.now(clock)) != 1) {
                     throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
                 }

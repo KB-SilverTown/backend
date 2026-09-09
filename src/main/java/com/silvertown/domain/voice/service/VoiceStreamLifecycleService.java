@@ -21,13 +21,6 @@ public interface VoiceStreamLifecycleService {
 
     void interruptAiTts(String userId, String sessionId, String interruptedAiTurnId);
 
-    /** @deprecated The active AI turn is validated under the session row lock. */
-    @Deprecated
-    default void interruptAiTts(
-            String userId, String sessionId, String interruptedAiTurnId, long ignoredLifecycleGeneration) {
-        interruptAiTts(userId, sessionId, interruptedAiTurnId);
-    }
-
     void cancelInputStream(
             String userId, String sessionId, String inputTurnId, long lifecycleGeneration);
 }

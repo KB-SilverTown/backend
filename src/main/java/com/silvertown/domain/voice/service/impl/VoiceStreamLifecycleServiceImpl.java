@@ -72,7 +72,13 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
             throw turnConflict();
         }
         requireUpdated(voiceSessionMapper.completeStreamTurnWithAi(
-                userId, sessionId, inputTurnId, lifecycleGeneration, aiTurnId, now));
+                userId,
+                sessionId,
+                inputTurnId,
+                lifecycleGeneration,
+                aiTurnId,
+                session.getCurrentStep(),
+                now));
     }
 
     @Override
