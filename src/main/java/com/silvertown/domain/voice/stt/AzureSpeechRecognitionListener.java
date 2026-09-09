@@ -10,5 +10,10 @@ public interface AzureSpeechRecognitionListener {
         onFailure();
     }
 
+    /** Azure 제공자가 노출하는 안전한 실패 분류를 전달한다. */
+    default void onFailure(String providerReason) {
+        onFailure();
+    }
+
     void onFailure();
 }

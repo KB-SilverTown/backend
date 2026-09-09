@@ -255,13 +255,46 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
                 @Override
                 public void onFailure() {
                     handleRecognitionFailure(
-                            cancelled, finalHandled, lifecycle, session, userId, sessionId, inputTurnId, lifecycleGeneration);
+                            cancelled,
+                            finalHandled,
+                            lifecycle,
+                            session,
+                            userId,
+                            sessionId,
+                            inputTurnId,
+                            lifecycleGeneration,
+                            "provider_failure",
+                            null);
+                }
+
+                @Override
+                public void onFailure(String providerReason) {
+                    handleRecognitionFailure(
+                            cancelled,
+                            finalHandled,
+                            lifecycle,
+                            session,
+                            userId,
+                            sessionId,
+                            inputTurnId,
+                            lifecycleGeneration,
+                            "provider_failure",
+                            providerReason);
                 }
 
                 @Override
                 public void onNoMatch() {
                     handleRecognitionFailure(
-                            cancelled, finalHandled, lifecycle, session, userId, sessionId, inputTurnId, lifecycleGeneration);
+                            cancelled,
+                            finalHandled,
+                            lifecycle,
+                            session,
+                            userId,
+                            sessionId,
+                            inputTurnId,
+                            lifecycleGeneration,
+                            "no_match",
+                            null);
                 }
             });
             active = new ActiveStream(
@@ -301,6 +334,8 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             if (stream != null) {
                 stopAndClose(stream);
             }
+            log.warn("Unable to start Azure Speech recognition stream. sessionId={}, inputTurnId={}, errorCode={}",
+                    sessionId, inputTurnId, errorCode(exception));
             cancelInputLifecycle(userId, sessionId, inputTurnId, lifecycleGeneration);
             throw exception;
         }
@@ -424,17 +459,26 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             String userId,
             String sessionId,
             String inputTurnId,
-            long lifecycleGeneration) {
+            long lifecycleGeneration,
+            String outcome,
+            String providerReason) {
         if (cancelled.get() || !finalHandled.compareAndSet(false, true)) {
             requestCloseActive(lifecycle);
             return;
         }
         cancelled.set(true);
-        log.warn("Azure Speech did not produce a final recognition result. sessionId={}, inputTurnId={}",
-                sessionId, inputTurnId);
+        log.warn("Azure Speech did not produce a final recognition result. outcome={}, providerReason={}, sessionId={}, inputTurnId={}",
+                outcome, providerReason, sessionId, inputTurnId);
         sendError(responseSession(lifecycle.active.get(), fallbackSession), ErrorCode.SPEECH_RECOGNITION_FAILED);
         cancelInputLifecycle(userId, sessionId, inputTurnId, lifecycleGeneration);
         requestCloseActive(lifecycle);
+    }
+
+    private String errorCode(RuntimeException exception) {
+        if (exception instanceof BusinessException businessException) {
+            return businessException.getErrorCode().getCode();
+        }
+        return "UNEXPECTED";
     }
 
     private void scheduleFinalResultTimeout(ActiveStream active) {
