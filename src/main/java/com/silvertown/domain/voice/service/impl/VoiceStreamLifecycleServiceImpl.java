@@ -11,6 +11,8 @@ import com.silvertown.domain.voice.vo.VoiceSessionVo;
 import com.silvertown.global.common.exception.BusinessException;
 import com.silvertown.global.common.exception.ErrorCode;
 import java.sql.SQLException;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.CannotAcquireLockException;
@@ -22,16 +24,18 @@ import org.springframework.transaction.annotation.Transactional;
 public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleService {
     private final VoiceSessionMapper voiceSessionMapper;
     private final DialogueTurnMapper dialogueTurnMapper;
+    private final Clock clock;
 
     @Override
     @Transactional
     public long claimInputTurn(String userId, String sessionId, String inputTurnId) {
         requireTurnId(inputTurnId);
+        LocalDateTime now = LocalDateTime.now(clock);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
-        requireBackendTransferSession(session);
+        requireBackendTransferSession(session, now);
         requireStatus(session, VoiceSessionStatus.LISTENING);
         requireNoActiveTurns(session);
-        requireUpdated(voiceSessionMapper.claimStreamInputTurn(userId, sessionId, inputTurnId));
+        requireUpdated(voiceSessionMapper.claimStreamInputTurn(userId, sessionId, inputTurnId, now));
         return session.getLifecycleGeneration();
     }
 
@@ -40,12 +44,13 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
     public void beginFinalProcessing(
             String userId, String sessionId, String inputTurnId, long lifecycleGeneration) {
         requireTurnId(inputTurnId);
+        LocalDateTime now = LocalDateTime.now(clock);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
-        requireBackendTransferSession(session);
+        requireBackendTransferSession(session, now);
         requireStatus(session, VoiceSessionStatus.LISTENING);
         requireActiveInput(session, inputTurnId, lifecycleGeneration);
         requireUpdated(voiceSessionMapper.beginStreamFinalProcessing(
-                userId, sessionId, inputTurnId, lifecycleGeneration));
+                userId, sessionId, inputTurnId, lifecycleGeneration, now));
     }
 
     @Override
@@ -58,23 +63,25 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
             String aiTurnId) {
         requireTurnId(inputTurnId);
         requireTurnId(aiTurnId);
+        LocalDateTime now = LocalDateTime.now(clock);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
-        requireBackendTransferSession(session);
+        requireBackendTransferSession(session, now);
         requireStatus(session, VoiceSessionStatus.PROCESSING);
         requireActiveInput(session, inputTurnId, lifecycleGeneration);
         if (session.getActiveAiTurnId() != null) {
             throw turnConflict();
         }
         requireUpdated(voiceSessionMapper.completeStreamTurnWithAi(
-                userId, sessionId, inputTurnId, lifecycleGeneration, aiTurnId));
+                userId, sessionId, inputTurnId, lifecycleGeneration, aiTurnId, now));
     }
 
     @Override
     @Transactional
     public void interruptAiTts(String userId, String sessionId, String interruptedAiTurnId) {
         requireTurnId(interruptedAiTurnId);
+        LocalDateTime now = LocalDateTime.now(clock);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
-        requireBackendTransferSession(session);
+        requireBackendTransferSession(session, now);
         requireStatus(session, VoiceSessionStatus.SPEAKING);
         if (!Objects.equals(interruptedAiTurnId, session.getActiveAiTurnId())
                 || session.getActiveInputTurnId() != null) {
@@ -82,15 +89,16 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
         }
         requireUpdated(dialogueTurnMapper.markInterrupted(interruptedAiTurnId));
         requireUpdated(voiceSessionMapper.interruptActiveAiTurn(
-                userId, sessionId, interruptedAiTurnId));
+                userId, sessionId, interruptedAiTurnId, now));
     }
 
     @Override
     @Transactional
     public void cancelInputStream(String userId, String sessionId, String inputTurnId) {
         requireTurnId(inputTurnId);
+        LocalDateTime now = LocalDateTime.now(clock);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
-        requireBackendTransferSession(session);
+        requireBackendTransferSession(session, now);
         VoiceSessionStatus status = VoiceSessionStatus.valueOf(session.getStatus());
         if (status != VoiceSessionStatus.LISTENING && status != VoiceSessionStatus.PROCESSING) {
             throw turnConflict();
@@ -99,7 +107,7 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
         if (session.getActiveAiTurnId() != null) {
             throw turnConflict();
         }
-        requireUpdated(voiceSessionMapper.cancelActiveInputTurn(userId, sessionId, inputTurnId));
+        requireUpdated(voiceSessionMapper.cancelActiveInputTurn(userId, sessionId, inputTurnId, now));
     }
 
     private VoiceSessionVo findOwnedForUpdate(String userId, String sessionId) {
@@ -117,10 +125,12 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
         }
     }
 
-    private void requireBackendTransferSession(VoiceSessionVo session) {
+    private void requireBackendTransferSession(VoiceSessionVo session, LocalDateTime now) {
         VoiceSessionStatus status = VoiceSessionStatus.valueOf(session.getStatus());
         if (status == VoiceSessionStatus.CLOSED
                 || status == VoiceSessionStatus.EXPIRED
+                || session.getExpiresAt() == null
+                || !session.getExpiresAt().isAfter(now)
                 || VoiceFlowType.valueOf(session.getFlowType()) != VoiceFlowType.TRANSFER
                 || SttMode.valueOf(session.getSttMode()) != SttMode.BACKEND_STREAM) {
             throw turnConflict();

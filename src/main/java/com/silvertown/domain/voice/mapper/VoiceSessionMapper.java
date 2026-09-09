@@ -53,28 +53,33 @@ public interface VoiceSessionMapper {
     int claimStreamInputTurn(
             @Param("userId") String userId,
             @Param("sessionId") String sessionId,
-            @Param("inputTurnId") String inputTurnId);
+            @Param("inputTurnId") String inputTurnId,
+            @Param("now") LocalDateTime now);
 
     int beginStreamFinalProcessing(
             @Param("userId") String userId,
             @Param("sessionId") String sessionId,
             @Param("inputTurnId") String inputTurnId,
-            @Param("lifecycleGeneration") long lifecycleGeneration);
+            @Param("lifecycleGeneration") long lifecycleGeneration,
+            @Param("now") LocalDateTime now);
 
     int completeStreamTurnWithAi(
             @Param("userId") String userId,
             @Param("sessionId") String sessionId,
             @Param("inputTurnId") String inputTurnId,
             @Param("lifecycleGeneration") long lifecycleGeneration,
-            @Param("aiTurnId") String aiTurnId);
+            @Param("aiTurnId") String aiTurnId,
+            @Param("now") LocalDateTime now);
 
     int interruptActiveAiTurn(
             @Param("userId") String userId,
             @Param("sessionId") String sessionId,
-            @Param("aiTurnId") String aiTurnId);
+            @Param("aiTurnId") String aiTurnId,
+            @Param("now") LocalDateTime now);
 
     int cancelActiveInputTurn(
             @Param("userId") String userId,
             @Param("sessionId") String sessionId,
-            @Param("inputTurnId") String inputTurnId);
+            @Param("inputTurnId") String inputTurnId,
+            @Param("now") LocalDateTime now);
 }

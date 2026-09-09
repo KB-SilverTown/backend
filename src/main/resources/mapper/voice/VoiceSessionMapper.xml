@@ -182,6 +182,7 @@
           AND status = 'LISTENING'
           AND active_input_turn_id IS NULL
           AND active_ai_turn_id IS NULL
+          AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
     </update>
 
     <update id="beginStreamFinalProcessing">
@@ -193,6 +194,7 @@
           AND active_input_turn_id = #{inputTurnId, jdbcType=CHAR}
           AND active_ai_turn_id IS NULL
           AND lifecycle_generation = #{lifecycleGeneration}
+          AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
     </update>
 
     <update id="completeStreamTurnWithAi">
@@ -206,6 +208,7 @@
           AND active_input_turn_id = #{inputTurnId, jdbcType=CHAR}
           AND active_ai_turn_id IS NULL
           AND lifecycle_generation = #{lifecycleGeneration}
+          AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
     </update>
 
     <update id="interruptActiveAiTurn">
@@ -218,6 +221,7 @@
           AND status = 'SPEAKING'
           AND active_input_turn_id IS NULL
           AND active_ai_turn_id = #{aiTurnId, jdbcType=CHAR}
+          AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
     </update>
 
     <update id="cancelActiveInputTurn">
@@ -230,5 +234,6 @@
           AND status IN ('LISTENING', 'PROCESSING')
           AND active_input_turn_id = #{inputTurnId, jdbcType=CHAR}
           AND active_ai_turn_id IS NULL
+          AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
     </update>
 </mapper>
