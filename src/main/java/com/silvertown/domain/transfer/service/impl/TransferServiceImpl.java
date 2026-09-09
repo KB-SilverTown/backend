@@ -631,7 +631,7 @@ if (pin.getLockedUntil() != null) {
         if (!MessageDigest.isEqual(
                 transfer.getConfirmationTokenHash().getBytes(java.nio.charset.StandardCharsets.UTF_8),
                 sensitiveDataHasher.hash(confirmationToken).getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
-            throw new BusinessException(ErrorCode.TRANSFER_CONFIRMATION_REQUIRED);
+            throw new BusinessException(ErrorCode.TRANSFER_CONFIRMATION_INVALID);
         }
     }
 
