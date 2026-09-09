@@ -1,6 +1,7 @@
 package com.silvertown.domain.voice.mapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -143,6 +144,9 @@ class UserVoiceSettingsMapperIntegrationTest {
             assertEquals("ko-KR-JiMinNeural", found.getVoiceName());
             assertEquals(new BigDecimal("1.20"), found.getSpeechRateMultiplier());
             assertEquals(new BigDecimal("1.00"), found.getVolumeMultiplier());
+            assertEquals("STANDARD", found.getPreferredVerbosity());
+            assertFalse(found.getSupportStartNextSession());
+            assertEquals(0, found.getRecentSupportSignalCount());
         }
     }
 
