@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.silvertown.domain.auth.dto.UserProfileResponse;
 import com.silvertown.domain.auth.service.AuthService;
+import com.silvertown.global.common.exception.GlobalExceptionHandler;
 import com.silvertown.global.security.AuthenticatedUserId;
 import java.util.List;
 import java.util.UUID;
@@ -45,6 +46,7 @@ class UserProfileControllerContractTest {
 
     mockMvc = MockMvcBuilders.standaloneSetup(
             new UserProfileController(authService, new AuthenticatedUserId()))
+        .setControllerAdvice(new GlobalExceptionHandler())
         .setMessageConverters(
             new MappingJackson2XmlHttpMessageConverter(),
             new MappingJackson2HttpMessageConverter(objectMapper))
@@ -68,6 +70,16 @@ class UserProfileControllerContractTest {
     assertFalse(response.has("residentRegistrationNumber"));
     assertFalse(response.has("accountNumber"));
     assertFalse(response.has("emergencyContact"));
+  }
+
+  @Test
+  void currentUserProfileRequiresAuthentication() throws Exception {
+    MvcResult result = mockMvc.perform(get("/api/users/me"))
+        .andExpect(status().isUnauthorized())
+        .andReturn();
+
+    JsonNode response = objectMapper.readTree(result.getResponse().getContentAsByteArray());
+    assertEquals("AUTHENTICATION_REQUIRED", response.get("code").asText());
   }
 
   private UsernamePasswordAuthenticationToken authentication() {
