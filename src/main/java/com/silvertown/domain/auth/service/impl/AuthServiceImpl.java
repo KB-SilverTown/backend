@@ -4,10 +4,12 @@ import com.silvertown.domain.account.mapper.AccountMapper;
 import com.silvertown.domain.auth.dto.AuthResponse;
 import com.silvertown.domain.auth.dto.LoginRequest;
 import com.silvertown.domain.auth.dto.SignUpRequest;
+import com.silvertown.domain.auth.dto.UserProfileResponse;
 import com.silvertown.domain.auth.mapper.AuthMapper;
 import com.silvertown.domain.auth.service.AuthLoginAttemptService;
 import com.silvertown.domain.auth.service.AuthService;
 import com.silvertown.domain.auth.vo.AuthUserVo;
+import com.silvertown.domain.auth.vo.CurrentUserProfileVo;
 import com.silvertown.domain.auth.vo.RefreshTokenVo;
 import com.silvertown.domain.auth.vo.UserConsentVo;
 import com.silvertown.domain.auth.vo.UserProfileVo;
@@ -158,6 +160,24 @@ public class AuthServiceImpl implements AuthService {
     authMapper.revokeRefreshTokenForLogout(hasher.hash(refreshToken), OffsetDateTime.now(clock));
   }
 
+  @Override
+  @Transactional(readOnly = true)
+  public UserProfileResponse getCurrentUserProfile(UUID userId) {
+    CurrentUserProfileVo profile = authMapper.findCurrentUserProfileByUserId(userId.toString());
+    if (profile == null) {
+      throw new BusinessException(ErrorCode.INVALID_AUTHENTICATED_USER);
+    }
+
+    return new UserProfileResponse(
+        userId,
+        profile.getLoginId(),
+        profile.getName(),
+        formatPhoneNumber(sensitiveDataCrypto.decrypt(profile.getPhoneEncrypted())),
+        profile.getPostalCode(),
+        profile.getAddress(),
+        profile.getDetailAddress());
+  }
+
   private UserProfileVo toProfile(UUID userId, SignUpRequest request, OffsetDateTime now) {
     UserProfileVo profile = new UserProfileVo();
     profile.setUserId(userId.toString());
@@ -243,5 +263,18 @@ public class AuthServiceImpl implements AuthService {
     if (refreshToken == null || refreshToken.isBlank()) {
       throw new BusinessException(ErrorCode.REFRESH_TOKEN_MISSING);
     }
+  }
+
+  private String formatPhoneNumber(String phone) {
+    String digits = phone.replaceAll("\\D", "");
+    if (!digits.matches("01[016789]\\d{7,8}")) {
+      return phone;
+    }
+    int middleLength = digits.length() - 7;
+    return digits.substring(0, 3)
+        + "-"
+        + digits.substring(3, 3 + middleLength)
+        + "-"
+        + digits.substring(3 + middleLength);
   }
 }

@@ -1,6 +1,7 @@
 package com.silvertown.domain.auth.mapper;
 
 import com.silvertown.domain.auth.vo.AuthUserVo;
+import com.silvertown.domain.auth.vo.CurrentUserProfileVo;
 import com.silvertown.domain.auth.vo.RefreshTokenVo;
 import com.silvertown.domain.auth.vo.UserConsentVo;
 import com.silvertown.domain.auth.vo.UserProfileVo;
@@ -12,6 +13,8 @@ import org.apache.ibatis.annotations.Param;
 public interface AuthMapper {
 
   AuthUserVo findUserByLoginId(@Param("loginId") String loginId);
+
+  CurrentUserProfileVo findCurrentUserProfileByUserId(@Param("userId") String userId);
 
   int insertUser(AuthUserVo user);
 
