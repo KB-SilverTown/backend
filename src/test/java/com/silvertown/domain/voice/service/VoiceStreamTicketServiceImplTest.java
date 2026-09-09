@@ -119,6 +119,7 @@ class VoiceStreamTicketServiceImplTest {
         VoiceStreamTicketVo ticket = storedTicket();
         when(voiceStreamTicketMapper.findUnusedUnexpiredByHash(eq(sha256(opaqueTicket)), any()))
                 .thenReturn(ticket);
+        when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(eligibleSession());
         when(voiceStreamTicketMapper.consumeIfUnusedAndUnexpired(
                 eq(ticket.getTicketId()), any(), any())).thenReturn(1);
 
@@ -148,10 +149,53 @@ class VoiceStreamTicketServiceImplTest {
         VoiceStreamTicketVo ticket = storedTicket();
         when(voiceStreamTicketMapper.findUnusedUnexpiredByHash(eq(sha256(opaqueTicket)), any()))
                 .thenReturn(ticket);
+        when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(eligibleSession());
         when(voiceStreamTicketMapper.consumeIfUnusedAndUnexpired(
                 eq(ticket.getTicketId()), any(), any())).thenReturn(0);
 
         assertFalse(service.consumeForHandshake(SESSION_ID, opaqueTicket).isPresent());
+    }
+
+    @Test
+    void rejectsTerminalSessionAtHandshakeWithoutConsumingItsIssuedTicket() {
+        String opaqueTicket = "vst_opaque-ticket";
+        VoiceStreamTicketVo ticket = storedTicket();
+        when(voiceStreamTicketMapper.findUnusedUnexpiredByHash(eq(sha256(opaqueTicket)), any()))
+                .thenReturn(ticket);
+        when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(
+                eligibleSession(VoiceSessionStatus.CLOSED));
+
+        assertFalse(service.consumeForHandshake(SESSION_ID, opaqueTicket).isPresent());
+
+        verify(voiceStreamTicketMapper, never()).consumeIfUnusedAndUnexpired(any(), any(), any());
+    }
+
+    @Test
+    void rejectsExpiredSessionAtHandshakeWithoutConsumingItsIssuedTicket() {
+        String opaqueTicket = "vst_opaque-ticket";
+        VoiceStreamTicketVo ticket = storedTicket();
+        when(voiceStreamTicketMapper.findUnusedUnexpiredByHash(eq(sha256(opaqueTicket)), any()))
+                .thenReturn(ticket);
+        when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(
+                eligibleSession(VoiceSessionStatus.EXPIRED));
+
+        assertFalse(service.consumeForHandshake(SESSION_ID, opaqueTicket).isPresent());
+
+        verify(voiceStreamTicketMapper, never()).consumeIfUnusedAndUnexpired(any(), any(), any());
+    }
+
+    @Test
+    void permitsSpeakingSessionHandshakeForTtsBargeInAndReconnectFlow() {
+        String opaqueTicket = "vst_opaque-ticket";
+        VoiceStreamTicketVo ticket = storedTicket();
+        when(voiceStreamTicketMapper.findUnusedUnexpiredByHash(eq(sha256(opaqueTicket)), any()))
+                .thenReturn(ticket);
+        when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(
+                eligibleSession(VoiceSessionStatus.SPEAKING));
+        when(voiceStreamTicketMapper.consumeIfUnusedAndUnexpired(
+                eq(ticket.getTicketId()), any(), any())).thenReturn(1);
+
+        assertEquals(Optional.of(USER_ID), service.consumeForHandshake(SESSION_ID, opaqueTicket));
     }
 
     private VoiceSessionDetailResponse eligibleSession() {
