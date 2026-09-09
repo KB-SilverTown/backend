@@ -469,8 +469,8 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         cancelled.set(true);
         log.warn("Azure Speech did not produce a final recognition result. outcome={}, providerReason={}, sessionId={}, inputTurnId={}",
                 outcome, providerReason, sessionId, inputTurnId);
-        sendError(responseSession(lifecycle.active.get(), fallbackSession), ErrorCode.SPEECH_RECOGNITION_FAILED);
         cancelInputLifecycle(userId, sessionId, inputTurnId, lifecycleGeneration);
+        sendError(responseSession(lifecycle.active.get(), fallbackSession), ErrorCode.SPEECH_RECOGNITION_FAILED);
         requestCloseActive(lifecycle);
     }
 
