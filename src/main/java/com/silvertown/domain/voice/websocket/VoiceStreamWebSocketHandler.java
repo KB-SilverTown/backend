@@ -219,10 +219,10 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
                         if (cancelled.get()) {
                             return;
                         }
-                        sendFinal(responseSession(lifecycle.active.get(), session), inputTurnId, result);
                         VoiceTurnResponse response = voiceTurnService.processAzureTransferFinal(
                                 userId, sessionId, inputTurnId, lifecycleGeneration, result);
                         if (!cancelled.get()) {
+                            sendFinal(responseSession(lifecycle.active.get(), session), inputTurnId, result);
                             sendTurnResponse(responseSession(lifecycle.active.get(), session), inputTurnId, response);
                         }
                     } catch (BusinessException exception) {
@@ -304,6 +304,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             String interruptedAiTurnId = requiredIdentifier(event, "interruptedAiTurnId");
             voiceStreamLifecycleService.interruptAiTts(
                     userId(session), voiceSessionId(session), interruptedAiTurnId);
+            closeActiveStreamForSession(voiceSessionId(session));
             sendCancelledAi(session, interruptedAiTurnId);
             return;
         }
@@ -582,6 +583,15 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
     private boolean hasActiveInputForSession(String sessionId) {
         return activeVoiceStreams.values().stream()
                 .anyMatch(active -> active.voiceSessionId.equals(sessionId));
+    }
+
+    private void closeActiveStreamForSession(String sessionId) {
+        activeVoiceStreams.values().stream()
+                .filter(active -> active.voiceSessionId.equals(sessionId))
+                .forEach(active -> {
+                    active.cancelled.set(true);
+                    closeActive(active);
+                });
     }
 
     private void cancelInputLifecycle(ActiveStream active) {
