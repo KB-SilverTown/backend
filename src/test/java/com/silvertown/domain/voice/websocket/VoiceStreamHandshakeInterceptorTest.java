@@ -76,6 +76,21 @@ class VoiceStreamHandshakeInterceptorTest {
         assertEquals(HttpStatus.FORBIDDEN.value(), response.getStatus());
     }
 
+    @Test
+    void rejectsUntrustedOriginWithoutConsumingTicket() throws Exception {
+        MockHttpServletRequest request = streamRequest("voice-stream-v1", "ticket." + TICKET);
+        request.addHeader("Origin", "https://untrusted.example");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertFalse(interceptor.beforeHandshake(
+                new ServletServerHttpRequest(request), new ServletServerHttpResponse(response),
+                Mockito.mock(WebSocketHandler.class), new HashMap<>()));
+
+        assertEquals(HttpStatus.FORBIDDEN.value(), response.getStatus());
+        verify(voiceStreamTicketService, Mockito.never()).consumeForHandshake(
+                Mockito.anyString(), Mockito.anyString());
+    }
+
     private MockHttpServletRequest streamRequest(String... protocols) {
         MockHttpServletRequest request = new MockHttpServletRequest(
                 "GET", "/api/voice/sessions/" + SESSION_ID + "/stream");

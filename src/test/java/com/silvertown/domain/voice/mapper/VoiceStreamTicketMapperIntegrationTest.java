@@ -96,6 +96,17 @@ class VoiceStreamTicketMapperIntegrationTest {
         }
     }
 
+    @Test
+    void doesNotFindExpiredTicketForHandshakeConsumption() {
+        VoiceStreamTicketVo ticket = newTicket();
+        ticket.setExpiresAt(NOW.minusSeconds(1));
+        try (SqlSession sqlSession = sessionFactory.openSession(true)) {
+            VoiceStreamTicketMapper mapper = sqlSession.getMapper(VoiceStreamTicketMapper.class);
+            mapper.insert(ticket);
+            assertNull(mapper.findUnusedUnexpiredByHash(ticket.getTicketHash(), NOW));
+        }
+    }
+
     private VoiceStreamTicketVo newTicket() {
         VoiceStreamTicketVo ticket = new VoiceStreamTicketVo();
         ticket.setTicketId("30000000-0000-0000-0000-000000000001");

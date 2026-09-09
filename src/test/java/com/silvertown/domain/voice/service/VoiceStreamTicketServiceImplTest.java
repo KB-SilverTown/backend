@@ -102,6 +102,18 @@ class VoiceStreamTicketServiceImplTest {
     }
 
     @Test
+    void doesNotIssueTicketWhenTheRequestedSessionIsNotOwnedByTheAuthenticatedUser() {
+        when(voiceSessionService.get(USER_ID, SESSION_ID)).thenThrow(
+                new BusinessException(ErrorCode.VOICE_SESSION_NOT_FOUND));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class, () -> service.issue(USER_ID, SESSION_ID));
+
+        assertEquals(ErrorCode.VOICE_SESSION_NOT_FOUND, exception.getErrorCode());
+        verify(voiceStreamTicketMapper, never()).insert(any());
+    }
+
+    @Test
     void consumesMatchingUnusedUnexpiredTicketOnceAndReturnsItsPrincipalUserId() {
         String opaqueTicket = "vst_opaque-ticket";
         VoiceStreamTicketVo ticket = storedTicket();
