@@ -2,6 +2,7 @@ package com.silvertown.domain.voice.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.silvertown.domain.voice.enums.VoiceGuidanceMode;
+import com.silvertown.domain.voice.enums.VoiceNextAction;
 import java.util.Locale;
 import org.springframework.stereotype.Component;
 
@@ -9,18 +10,27 @@ import org.springframework.stereotype.Component;
 @Component
 public class VoiceGuidanceTemplateRenderer {
     public String render(String ttsText, JsonNode displayCard, VoiceGuidanceMode mode) {
+        return render(ttsText, displayCard, mode, null);
+    }
+
+    public String render(
+            String ttsText, JsonNode displayCard, VoiceGuidanceMode mode, VoiceNextAction nextAction) {
         if (ttsText == null || mode == VoiceGuidanceMode.STANDARD) {
             return ttsText;
         }
         String type = displayCard == null ? "" : displayCard.path("type").asText();
-        return switch (type) {
-            case "RECIPIENT_CANDIDATES" -> recipient(displayCard, ttsText, mode);
-            case "AMOUNT_RECONFIRM" -> amount(displayCard, ttsText, mode);
-            case "TRANSFER_READBACK" -> readback(displayCard, ttsText, mode);
-            default -> mode == VoiceGuidanceMode.SUPPORT && isReask(ttsText)
-                    ? "잘 듣지 못했어요. 천천히, 짧게 다시 말씀해 주세요."
-                    : ttsText;
-        };
+        if ("RECIPIENT_CANDIDATES".equals(type) && nextAction == VoiceNextAction.ASK_RECIPIENT) {
+            return recipient(displayCard, ttsText, mode);
+        }
+        if ("AMOUNT_RECONFIRM".equals(type) && nextAction == VoiceNextAction.RECONFIRM_INPUT) {
+            return amount(displayCard, ttsText, mode);
+        }
+        if ("TRANSFER_READBACK".equals(type) && nextAction == VoiceNextAction.ASK_FINAL_APPROVAL) {
+            return readback(displayCard, ttsText, mode);
+        }
+        return mode == VoiceGuidanceMode.SUPPORT && isReask(ttsText)
+                ? "잘 듣지 못했어요. 천천히, 짧게 다시 말씀해 주세요."
+                : ttsText;
     }
 
     private String recipient(JsonNode card, String fallback, VoiceGuidanceMode mode) {

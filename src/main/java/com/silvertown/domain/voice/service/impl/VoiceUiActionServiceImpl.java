@@ -127,7 +127,7 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
         action.setRequestHash(requestHash);
         action.setResponseTurnId(responseTurnId);
         voiceUiActionMapper.insert(action);
-        VoiceUiActionResponse response = response(userId, sessionId, request.getActionId(), responseTurnId, outcome);
+        VoiceUiActionResponse response = storedResponse(sessionId, request.getActionId(), responseTurn);
         if (response.getTtsText() != null) {
             voiceAdaptationSessionStateStore.responseRendered(
                     sessionId, DialogueStep.valueOf(session.getCurrentStep()));
@@ -438,19 +438,11 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
         return turn;
     }
 
-    private VoiceUiActionResponse response(
-            String userId, String sessionId, String actionId, String responseTurnId, ActionOutcome outcome) {
-        return new VoiceUiActionResponse(
-                sessionId, actionId, responseTurnId, outcome.state(), outcome.intent(), "NONE", Map.of(),
-                null, renderedText(sessionId, outcome), outcome.ttsText() == null ? null
-                        : renderSsml(userId, renderedText(sessionId, outcome), sessionId),
-                outcome.displayCard(), null, outcome.draftSummary(), outcome.nextAction());
-    }
-
     private String renderedText(String sessionId, ActionOutcome outcome) {
         var state = voiceAdaptationSessionStateStore.stateOf(sessionId);
         var mode = state == null ? com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD : state.mode();
-        return voiceGuidanceTemplateRenderer.render(outcome.ttsText(), outcome.displayCard(), mode);
+        return voiceGuidanceTemplateRenderer.render(
+                outcome.ttsText(), outcome.displayCard(), mode, VoiceNextAction.valueOf(outcome.nextAction()));
     }
 
     private String renderSsml(String userId, String text, String sessionId) {

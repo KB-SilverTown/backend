@@ -960,7 +960,8 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
             String userId, String sessionId, VoiceTurnAnalysisResult analysis, boolean maximumVolumeReached) {
         var state = voiceAdaptationSessionStateStore.stateOf(sessionId);
         var mode = state == null ? com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD : state.mode();
-        String ttsText = voiceGuidanceTemplateRenderer.render(analysis.getTtsText(), analysis.getDisplayCard(), mode);
+        String ttsText = voiceGuidanceTemplateRenderer.render(
+                analysis.getTtsText(), analysis.getDisplayCard(), mode, analysis.getNextAction());
         if (maximumVolumeReached && ttsText != null) {
             ttsText += MAX_VOLUME_NOTICE;
         }
