@@ -290,6 +290,9 @@ class VoiceStreamWebSocketHandlerTest {
         handler.handleMessage(session, audio(1, new byte[] {1}));
 
         verify(stream, never()).write(any());
+        verify(voiceStreamLifecycleService).cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        verify(stream).stop();
+        verify(stream).close();
         assertInvalidRequestErrorWithRequestId(session);
     }
 
@@ -304,6 +307,9 @@ class VoiceStreamWebSocketHandlerTest {
         handler.handleMessage(session, audio(0, new byte[] {2}));
 
         verify(stream).write(new byte[] {1});
+        verify(voiceStreamLifecycleService).cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        verify(stream).stop();
+        verify(stream).close();
         assertInvalidRequestErrorWithRequestId(session);
     }
 
@@ -317,7 +323,78 @@ class VoiceStreamWebSocketHandlerTest {
         handler.handleMessage(session, audio(0, new byte[MAX_PCM_FRAME_BYTES + 1]));
 
         verify(stream, never()).write(any());
+        verify(voiceStreamLifecycleService).cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        verify(stream).stop();
+        verify(stream).close();
         assertInvalidRequestErrorWithRequestId(session);
+    }
+
+    @Test
+    void closesWith1011WhenAnUnexpectedPcmFailureOccurs() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        when(azureSpeechClient.open(any())).thenReturn(stream);
+        doThrow(new IllegalStateException("unexpected"))
+                .when(stream)
+                .write(new byte[] {1});
+
+        handler.handleMessage(session, start(FIRST_TURN_ID));
+        handler.handleMessage(session, audio(0, new byte[] {1}));
+
+        verify(voiceStreamLifecycleService).cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        verify(stream).stop();
+        verify(stream).close();
+        verify(session).close(CloseStatus.SERVER_ERROR);
+        assertError(session, "INTERNAL_SERVER_ERROR", false);
+    }
+
+    @Test
+    void ignoresThe1011CloseWhenFinalProcessingFailsAfterTheSocketDetaches() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        ArgumentCaptor<AzureSpeechRecognitionListener> listener =
+                ArgumentCaptor.forClass(AzureSpeechRecognitionListener.class);
+        when(azureSpeechClient.open(listener.capture())).thenReturn(stream);
+        doThrow(new IllegalStateException("unexpected"))
+                .when(voiceTurnService)
+                .processAzureTransferFinal(
+                        USER_ID,
+                        SESSION_ID,
+                        FIRST_TURN_ID,
+                        0L,
+                        new AzureSpeechDetailedResult("분석할 발화", new BigDecimal("0.95"), List.of()));
+
+        handler.handleMessage(session, start(FIRST_TURN_ID));
+        handler.afterConnectionClosed(session, CloseStatus.NORMAL);
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> listener.getValue().onFinalResult(
+                new AzureSpeechDetailedResult("분석할 발화", new BigDecimal("0.95"), List.of())));
+
+        verify(voiceStreamLifecycleService).cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        verify(stream, timeout(1_000)).close();
+    }
+
+    @Test
+    void cleansUpTheInputTurnWhenVoiceAnalysisFails() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        ArgumentCaptor<AzureSpeechRecognitionListener> listener =
+                ArgumentCaptor.forClass(AzureSpeechRecognitionListener.class);
+        when(azureSpeechClient.open(listener.capture())).thenReturn(stream);
+        doThrow(new BusinessException(ErrorCode.LLM_ANALYSIS_FAILED))
+                .when(voiceTurnService)
+                .processAzureTransferFinal(
+                        USER_ID,
+                        SESSION_ID,
+                        FIRST_TURN_ID,
+                        0L,
+                        new AzureSpeechDetailedResult("분석할 발화", new BigDecimal("0.95"), List.of()));
+
+        handler.handleMessage(session, start(FIRST_TURN_ID));
+        listener.getValue().onFinalResult(new AzureSpeechDetailedResult(
+                "분석할 발화", new BigDecimal("0.95"), List.of()));
+
+        verify(voiceStreamLifecycleService).cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        verify(stream, timeout(1_000)).stop();
+        verify(stream, timeout(1_000)).close();
+        assertError(session, "LLM_ANALYSIS_FAILED", true);
     }
 
     @Test
@@ -635,6 +712,19 @@ class VoiceStreamWebSocketHandlerTest {
         org.junit.jupiter.api.Assertions.assertFalse(payload.path("retryable").asBoolean());
         org.junit.jupiter.api.Assertions.assertTrue(
                 payload.path("requestId").asText().matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"));
+    }
+
+    private void assertError(WebSocketSession session, String code, boolean retryable) throws Exception {
+        ArgumentCaptor<TextMessage> error = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session, atLeastOnce()).sendMessage(error.capture());
+
+        com.fasterxml.jackson.databind.JsonNode payload = error.getAllValues().stream()
+                .map(message -> readJson(message.getPayload()))
+                .filter(message -> "ERROR".equals(message.path("type").asText()))
+                .filter(message -> code.equals(message.path("code").asText()))
+                .findFirst()
+                .orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(retryable, payload.path("retryable").asBoolean());
     }
 
     private com.fasterxml.jackson.databind.JsonNode readJson(String payload) {

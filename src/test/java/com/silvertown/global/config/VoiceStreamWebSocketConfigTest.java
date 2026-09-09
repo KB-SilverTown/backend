@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.silvertown.domain.voice.websocket.VoiceStreamWebSocketHandler;
 import com.silvertown.domain.voice.websocket.VoiceStreamHandshakeHandler;
 import com.silvertown.domain.voice.websocket.VoiceStreamHandshakeInterceptor;
+import com.silvertown.domain.voice.websocket.VoiceStreamWebSocketPolicy;
 import java.util.HashMap;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -30,7 +31,7 @@ import org.springframework.web.socket.server.support.OriginHandshakeInterceptor;
 class VoiceStreamWebSocketConfigTest {
 
     private static final String ALLOWED_ORIGIN = "http://localhost:5173";
-    private static final String CAPACITOR_ORIGIN = "capacitor://localhost";
+    private static final String ANDROID_WEBVIEW_ORIGIN = "https://localhost";
 
     @Test
     void allowsTheConfirmedFrontendOriginDuringTheWebSocketHandshake() throws Exception {
@@ -58,12 +59,12 @@ class VoiceStreamWebSocketConfigTest {
     }
 
     @Test
-    void allowsCapacitorFrontendDuringTheWebSocketHandshake() throws Exception {
+    void allowsTheAndroidCapacitorWebViewOriginDuringTheWebSocketHandshake() throws Exception {
         OriginHandshakeInterceptor interceptor = registeredOriginInterceptor();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         assertTrue(interceptor.beforeHandshake(
-                requestFrom(CAPACITOR_ORIGIN),
+                requestFrom(ANDROID_WEBVIEW_ORIGIN),
                 new ServletServerHttpResponse(response),
                 mock(WebSocketHandler.class),
                 new HashMap<>()));
@@ -73,6 +74,8 @@ class VoiceStreamWebSocketConfigTest {
         VoiceStreamWebSocketHandler handler = mock(VoiceStreamWebSocketHandler.class);
         VoiceStreamHandshakeInterceptor ticketInterceptor = mock(VoiceStreamHandshakeInterceptor.class);
         VoiceStreamHandshakeHandler handshakeHandler = mock(VoiceStreamHandshakeHandler.class);
+        VoiceStreamWebSocketPolicy policy =
+                new VoiceStreamWebSocketPolicy(ALLOWED_ORIGIN + "," + ANDROID_WEBVIEW_ORIGIN);
         WebSocketHandlerRegistry registry = mock(WebSocketHandlerRegistry.class);
         WebSocketHandlerRegistration registration = mock(WebSocketHandlerRegistration.class);
         when(registry.addHandler(handler, "/api/voice/sessions/*/stream")).thenReturn(registration);
@@ -81,18 +84,18 @@ class VoiceStreamWebSocketConfigTest {
                 .thenReturn(registration);
 
         VoiceStreamWebSocketConfig config = new VoiceStreamWebSocketConfig(
-                handler, ticketInterceptor, handshakeHandler);
+                handler, ticketInterceptor, handshakeHandler, policy);
         config.registerWebSocketHandlers(registry);
 
         ArgumentCaptor<String[]> originCaptor = ArgumentCaptor.forClass(String[].class);
         verify(registry).addHandler(handler, "/api/voice/sessions/*/stream");
         verify(registration).addInterceptors(ticketInterceptor);
         verify(registration).setHandshakeHandler(handshakeHandler);
-        verify(registration).setAllowedOriginPatterns(originCaptor.capture());
+        verify(registration).setAllowedOrigins(originCaptor.capture());
         assertNotNull(originCaptor.getValue());
 
         OriginHandshakeInterceptor interceptor = new OriginHandshakeInterceptor(List.of());
-        interceptor.setAllowedOriginPatterns(List.of(originCaptor.getValue()));
+        interceptor.setAllowedOrigins(List.of(originCaptor.getValue()));
         return interceptor;
     }
 

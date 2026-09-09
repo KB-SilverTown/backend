@@ -101,6 +101,8 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             }
         } catch (BusinessException exception) {
             sendErrorAndClose(session, exception.getErrorCode());
+        } catch (RuntimeException exception) {
+            closeUnexpectedServerError(session);
         }
     }
 
@@ -124,39 +126,43 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             sendError(session, ErrorCode.INVALID_REQUEST);
         } catch (BusinessException exception) {
             sendError(session, exception.getErrorCode());
+        } catch (RuntimeException exception) {
+            closeUnexpectedServerError(session);
         }
     }
 
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) {
-        ActiveStream active = activeStreams.get(session.getId());
-        if (active == null
-                || !active.startAcknowledged.get()
-                || active.cancelled.get()
-                || active.stopRequested.get()) {
-            sendError(session, ErrorCode.VOICE_TURN_CONFLICT);
-            return;
-        }
+        try {
+            ActiveStream active = activeStreams.get(session.getId());
+            if (active == null
+                    || !active.startAcknowledged.get()
+                    || active.cancelled.get()
+                    || active.stopRequested.get()) {
+                sendError(session, ErrorCode.VOICE_TURN_CONFLICT);
+                return;
+            }
 
-        ByteBuffer frame = message.getPayload().asReadOnlyBuffer().order(ByteOrder.BIG_ENDIAN);
-        if (frame.remaining() <= AUDIO_SEQUENCE_HEADER_BYTES) {
-            sendError(session, ErrorCode.INVALID_REQUEST);
-            return;
-        }
+            ByteBuffer frame = message.getPayload().asReadOnlyBuffer().order(ByteOrder.BIG_ENDIAN);
+            if (frame.remaining() <= AUDIO_SEQUENCE_HEADER_BYTES) {
+                rejectInvalidPcm(session, active);
+                return;
+            }
 
-        long sequence = Integer.toUnsignedLong(frame.getInt());
-        if (frame.remaining() > MAX_PCM_FRAME_BYTES) {
-            sendError(session, ErrorCode.INVALID_REQUEST);
-            return;
-        }
-        if (!active.acceptAudioSequence(sequence)) {
-            sendError(session, ErrorCode.INVALID_REQUEST);
-            return;
-        }
+            long sequence = Integer.toUnsignedLong(frame.getInt());
+            if (frame.remaining() > MAX_PCM_FRAME_BYTES || !active.acceptAudioSequence(sequence)) {
+                rejectInvalidPcm(session, active);
+                return;
+            }
 
-        byte[] audio = new byte[frame.remaining()];
-        frame.get(audio);
-        active.stream.write(audio);
+            byte[] audio = new byte[frame.remaining()];
+            frame.get(audio);
+            active.stream.write(audio);
+        } catch (BusinessException exception) {
+            sendError(session, exception.getErrorCode());
+        } catch (RuntimeException exception) {
+            closeUnexpectedServerError(session);
+        }
     }
 
     @Override
@@ -228,7 +234,14 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
                     } catch (BusinessException exception) {
                         if (!cancelled.get() && exception.getErrorCode() != ErrorCode.VOICE_TURN_CONFLICT) {
                             sendError(responseSession(lifecycle.active.get(), session), exception.getErrorCode());
+                            if (exception.getErrorCode().isRetryable()) {
+                                cancelInputLifecycle(userId, sessionId, inputTurnId, lifecycleGeneration);
+                            }
                         }
+                    } catch (RuntimeException exception) {
+                        cancelled.set(true);
+                        cancelInputLifecycle(userId, sessionId, inputTurnId, lifecycleGeneration);
+                        closeUnexpectedServerError(responseSession(lifecycle.active.get(), session));
                     } finally {
                         requestCloseActive(lifecycle);
                     }
@@ -517,6 +530,37 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         } finally {
             scheduleCloseActive(active);
         }
+    }
+
+    private void closeUnexpectedServerError(WebSocketSession session) {
+        ActiveStream active = session == null ? null : activeStreams.get(session.getId());
+        if (active != null) {
+            active.cancelled.set(true);
+            try {
+                cancelInputLifecycle(active);
+            } finally {
+                closeActive(active);
+            }
+        }
+        sendError(session, ErrorCode.INTERNAL_SERVER_ERROR);
+        if (session == null) {
+            return;
+        }
+        try {
+            session.close(CloseStatus.SERVER_ERROR);
+        } catch (IOException exception) {
+            log.warn("Unable to close failed voice stream WebSocket.");
+        }
+    }
+
+    private void rejectInvalidPcm(WebSocketSession session, ActiveStream active) {
+        active.cancelled.set(true);
+        try {
+            cancelInputLifecycle(active);
+        } finally {
+            closeActive(active);
+        }
+        sendError(session, ErrorCode.INVALID_REQUEST);
     }
 
     private WebSocketSession responseSession(ActiveStream active, WebSocketSession fallbackSession) {

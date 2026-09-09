@@ -23,11 +23,12 @@ public class VoiceStreamHandshakeInterceptor implements HandshakeInterceptor {
     private final VoiceStreamTicketService voiceStreamTicketService;
     private final OriginHandshakeInterceptor originHandshakeInterceptor;
 
-    public VoiceStreamHandshakeInterceptor(VoiceStreamTicketService voiceStreamTicketService) {
+    public VoiceStreamHandshakeInterceptor(
+            VoiceStreamTicketService voiceStreamTicketService,
+            VoiceStreamWebSocketPolicy voiceStreamWebSocketPolicy) {
         this.voiceStreamTicketService = voiceStreamTicketService;
         this.originHandshakeInterceptor = new OriginHandshakeInterceptor(List.of());
-        this.originHandshakeInterceptor.setAllowedOriginPatterns(
-                VoiceStreamWebSocketPolicy.FRONTEND_ORIGIN_PATTERNS);
+        this.originHandshakeInterceptor.setAllowedOrigins(voiceStreamWebSocketPolicy.allowedOrigins());
     }
 
     @Override

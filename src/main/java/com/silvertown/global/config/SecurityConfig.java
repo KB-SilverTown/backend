@@ -1,5 +1,6 @@
 package com.silvertown.global.config;
 
+import com.silvertown.domain.voice.websocket.VoiceStreamWebSocketPolicy;
 import com.silvertown.global.security.JwtAuthenticationFilter;
 import com.silvertown.global.security.RestAuthenticationEntryPoint;
 import java.util.List;
@@ -23,15 +24,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @SuppressWarnings("deprecation")
 public class SecurityConfig extends WebSecurityConfigurerAdapter {
 
-  private static final List<String> FRONTEND_ORIGIN_PATTERNS = List.of(
-      "http://localhost",
-      "http://localhost:*",
-      "https://localhost",
-      "https://localhost:*",
-      "capacitor://localhost");
-
   private final JwtAuthenticationFilter jwtAuthenticationFilter;
   private final RestAuthenticationEntryPoint authenticationEntryPoint;
+  private final VoiceStreamWebSocketPolicy voiceStreamWebSocketPolicy;
 
   @Override
   protected void configure(HttpSecurity http) throws Exception {
@@ -61,7 +56,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    configuration.setAllowedOriginPatterns(FRONTEND_ORIGIN_PATTERNS);
+    configuration.setAllowedOrigins(voiceStreamWebSocketPolicy.allowedOrigins());
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of(
         "Authorization", "Content-Type", "Idempotency-Key", "Confirmation-Token"));

@@ -16,14 +16,17 @@ public class VoiceStreamWebSocketConfig implements WebSocketConfigurer {
     private final VoiceStreamWebSocketHandler voiceStreamWebSocketHandler;
     private final VoiceStreamHandshakeInterceptor voiceStreamHandshakeInterceptor;
     private final VoiceStreamHandshakeHandler voiceStreamHandshakeHandler;
+    private final VoiceStreamWebSocketPolicy voiceStreamWebSocketPolicy;
 
     public VoiceStreamWebSocketConfig(
             VoiceStreamWebSocketHandler voiceStreamWebSocketHandler,
             VoiceStreamHandshakeInterceptor voiceStreamHandshakeInterceptor,
-            VoiceStreamHandshakeHandler voiceStreamHandshakeHandler) {
+            VoiceStreamHandshakeHandler voiceStreamHandshakeHandler,
+            VoiceStreamWebSocketPolicy voiceStreamWebSocketPolicy) {
         this.voiceStreamWebSocketHandler = voiceStreamWebSocketHandler;
         this.voiceStreamHandshakeInterceptor = voiceStreamHandshakeInterceptor;
         this.voiceStreamHandshakeHandler = voiceStreamHandshakeHandler;
+        this.voiceStreamWebSocketPolicy = voiceStreamWebSocketPolicy;
     }
 
     @Override
@@ -31,7 +34,6 @@ public class VoiceStreamWebSocketConfig implements WebSocketConfigurer {
         registry.addHandler(voiceStreamWebSocketHandler, "/api/voice/sessions/*/stream")
                 .addInterceptors(voiceStreamHandshakeInterceptor)
                 .setHandshakeHandler(voiceStreamHandshakeHandler)
-                .setAllowedOriginPatterns(VoiceStreamWebSocketPolicy.FRONTEND_ORIGIN_PATTERNS
-                        .toArray(String[]::new));
+                .setAllowedOrigins(voiceStreamWebSocketPolicy.allowedOrigins().toArray(String[]::new));
     }
 }
