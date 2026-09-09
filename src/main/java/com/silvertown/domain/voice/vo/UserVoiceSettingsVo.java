@@ -14,6 +14,9 @@ public class UserVoiceSettingsVo {
     private String voiceName;
     private BigDecimal speechRateMultiplier;
     private BigDecimal volumeMultiplier;
+    private String preferredVerbosity;
+    private Boolean supportStartNextSession;
+    private Integer recentSupportSignalCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

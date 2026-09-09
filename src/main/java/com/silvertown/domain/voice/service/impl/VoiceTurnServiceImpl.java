@@ -32,6 +32,8 @@ import com.silvertown.domain.voice.service.AccountVoiceResponseResolver;
 import com.silvertown.domain.voice.service.BillVoiceResponseResolver;
 import com.silvertown.domain.voice.service.MobileBranchVoiceResponseResolver;
 import com.silvertown.domain.voice.service.VoiceInteractionCardIssuer;
+import com.silvertown.domain.voice.service.VoiceGuidanceSettingsService;
+import com.silvertown.domain.voice.service.VoiceGuidanceTemplateRenderer;
 import com.silvertown.domain.voice.service.VoiceProgressPromptFactory;
 import com.silvertown.domain.voice.service.VoiceSsmlRenderer;
 import com.silvertown.domain.voice.service.VoiceTransferOrchestrator;
@@ -79,6 +81,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
     private static final String REQUIRED_SLOT_FIELD = "requiredSlot";
     private static final String DRAFT_SUMMARY_FIELD = "draftSummary";
     private static final String VOICE_CARD_ACTION_FIELD = "_voiceCardAction";
+    private static final String MAX_VOLUME_NOTICE = " 가장 크게 안내하고 있어요. 휴대폰 미디어 볼륨도 함께 확인해 주세요.";
 
     private final VoiceSessionMapper voiceSessionMapper;
     private final DialogueTurnMapper dialogueTurnMapper;
@@ -97,6 +100,8 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
     private final PlatformTransactionManager transactionManager;
     private final VoiceGuidanceCommandParser voiceGuidanceCommandParser;
     private final VoiceAdaptationSessionStateStore voiceAdaptationSessionStateStore;
+    private final VoiceGuidanceTemplateRenderer voiceGuidanceTemplateRenderer;
+    private final VoiceGuidanceSettingsService voiceGuidanceSettingsService;
 
     /** Compatibility constructor retained for focused unit and integration tests. */
     public VoiceTurnServiceImpl(
@@ -120,7 +125,8 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 voiceInteractionCardIssuer, voiceInteractionCardMapper, accountVoiceResponseResolver,
                 billVoiceResponseResolver, mobileBranchVoiceResponseResolver, objectMapper, clock,
                 transactionManager, new VoiceGuidanceCommandParser(),
-                new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy()));
+                new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy()),
+                new VoiceGuidanceTemplateRenderer(), new VoiceGuidanceSettingsService(null));
     }
 
     @Override
@@ -163,9 +169,11 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                     ? analysisResolver.apply(claim.voiceSession())
                     : adaptationCommandResponse(request, claim.voiceSession());
             VoiceTurnAnalysisResult analysis = enrichRecipientCandidates(claim.voiceSession(), resolved);
+            boolean maximumVolumeReached = prepareAdaptationSignalHandling(
+                    claim.voiceSession(), request, analysis, command);
             VoiceTurnResponse response = persistAndCompleteTurn(
-                    userId, sessionId, request, claim.voiceSession(), analysis);
-            completeAdaptationSignalHandling(claim.voiceSession(), request, analysis, command, response);
+                    userId, sessionId, request, claim.voiceSession(), analysis, maximumVolumeReached);
+            completeAdaptationSignalHandling(claim.voiceSession(), response);
             return response;
         } catch (DuplicateKeyException exception) {
             restoreTurnClaim(userId, sessionId, claim.previousStatus(), exception);
@@ -212,12 +220,13 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 null);
     }
 
-    private void completeAdaptationSignalHandling(
+    private boolean prepareAdaptationSignalHandling(
             VoiceSessionVo voiceSession,
             VoiceTurnRequest request,
             VoiceTurnAnalysisResult analysis,
-            VoiceGuidanceCommand command,
-            VoiceTurnResponse response) {
+            VoiceGuidanceCommand command) {
+        boolean maximumVolumeReached = command != null
+                && voiceGuidanceSettingsService.applyExplicitCommand(voiceSession.getUserId(), command);
         DialogueStep currentStep = DialogueStep.valueOf(voiceSession.getCurrentStep());
         EnumSet<VoiceAdaptationSignal> signals = EnumSet.noneOf(VoiceAdaptationSignal.class);
         if (command != null && command.adaptationSignal() != null) {
@@ -238,8 +247,13 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         } else if (command == null && analysis.getNextStep() != currentStep) {
             voiceAdaptationSessionStateStore.recordNormalAdvance(voiceSession.getSessionId(), currentStep);
         }
+        return maximumVolumeReached;
+    }
+
+    private void completeAdaptationSignalHandling(
+            VoiceSessionVo voiceSession, VoiceTurnResponse response) {
+        DialogueStep currentStep = DialogueStep.valueOf(voiceSession.getCurrentStep());
         if (response.getState() == DialogueStep.CANCELLED) {
-            voiceAdaptationSessionStateStore.clear(voiceSession.getSessionId());
             return;
         }
         voiceAdaptationSessionStateStore.responseRendered(voiceSession.getSessionId(), currentStep);
@@ -873,7 +887,8 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
             String sessionId,
             VoiceTurnRequest request,
             VoiceSessionVo claimedSession,
-            VoiceTurnAnalysisResult analysis) {
+            VoiceTurnAnalysisResult analysis,
+            boolean maximumVolumeReached) {
         return inTransaction(() -> {
             VoiceSessionVo currentSession = findOwnedSessionForTurn(userId, sessionId);
             if (currentSession == null) {
@@ -884,7 +899,8 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
             }
 
             String voiceCardAction = voiceCardAction(analysis);
-            VoiceTurnAnalysisResult renderedAnalysis = withRenderedSsml(userId, withoutVoiceCardAction(analysis));
+            VoiceTurnAnalysisResult renderedAnalysis = withRenderedSsml(
+                    userId, sessionId, withoutVoiceCardAction(analysis), maximumVolumeReached);
             int userSequenceNo = dialogueTurnMapper.findNextSequenceNo(sessionId);
             dialogueTurnMapper.insert(userTurn(sessionId, userSequenceNo, request, claimedSession));
 
@@ -917,6 +933,9 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                         userId, sessionId, DialogueStep.CANCELLED.name(), LocalDateTime.now(clock)) != 1) {
                     throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
                 }
+                voiceGuidanceSettingsService.completeSession(
+                        userId, voiceAdaptationSessionStateStore.stateOf(sessionId));
+                voiceAdaptationSessionStateStore.clear(sessionId);
             } else if (voiceSessionMapper.completeTurn(
                     userId, sessionId, renderedAnalysis.getNextStep().name()) != 1) {
                 throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
@@ -937,14 +956,23 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 && analysis.getNextAction() == VoiceNextAction.WAIT_GUARDIAN_VERIFICATION;
     }
 
-    private VoiceTurnAnalysisResult withRenderedSsml(String userId, VoiceTurnAnalysisResult analysis) {
+    private VoiceTurnAnalysisResult withRenderedSsml(
+            String userId, String sessionId, VoiceTurnAnalysisResult analysis, boolean maximumVolumeReached) {
+        var state = voiceAdaptationSessionStateStore.stateOf(sessionId);
+        var mode = state == null ? com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD : state.mode();
+        String ttsText = voiceGuidanceTemplateRenderer.render(analysis.getTtsText(), analysis.getDisplayCard(), mode);
+        if (maximumVolumeReached && ttsText != null) {
+            ttsText += MAX_VOLUME_NOTICE;
+        }
         return new VoiceTurnAnalysisResult(
                 analysis.getNextStep(),
                 analysis.getIntent(),
                 analysis.getSlots(),
                 analysis.getConfidence(),
-                analysis.getTtsText(),
-                voiceSsmlRenderer.render(userId, analysis.getTtsText()),
+                ttsText,
+                mode == com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD
+                        ? voiceSsmlRenderer.render(userId, ttsText)
+                        : voiceSsmlRenderer.render(userId, ttsText, mode),
                 analysis.getDisplayCard(),
                 analysis.getRequiredSlot(),
                 analysis.getDraftSummary(),
@@ -1139,6 +1167,8 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         voiceSessionMapper.updateStatusAndStep(
                 userId, sessionId, VoiceSessionStatus.EXPIRED.name(), voiceSession.getCurrentStep());
         voiceInteractionCardMapper.deactivateActiveBySessionId(sessionId);
+        voiceGuidanceSettingsService.completeSession(
+                userId, voiceAdaptationSessionStateStore.stateOf(sessionId));
         voiceAdaptationSessionStateStore.clear(sessionId);
         voiceSession.setStatus(VoiceSessionStatus.EXPIRED.name());
     }

@@ -1,6 +1,7 @@
 package com.silvertown.domain.voice.service;
 
 import com.silvertown.domain.voice.mapper.UserVoiceSettingsMapper;
+import com.silvertown.domain.voice.enums.VoiceGuidanceMode;
 import com.silvertown.domain.voice.vo.UserVoiceSettingsVo;
 import java.math.BigDecimal;
 import java.util.Set;
@@ -25,14 +26,40 @@ public class VoiceSsmlRenderer {
     private final UserVoiceSettingsMapper userVoiceSettingsMapper;
 
     public String render(String userId, String ttsText) {
+        return render(userId, ttsText, VoiceGuidanceMode.STANDARD);
+    }
+
+    public String render(String userId, String ttsText, VoiceGuidanceMode guidanceMode) {
+        if (ttsText == null) {
+            return null;
+        }
         UserVoiceSettingsVo settings = normalize(userVoiceSettingsMapper.findByUserId(userId));
+        BigDecimal effectiveRate = clamp(
+                settings.getSpeechRateMultiplier().add(rateDelta(guidanceMode)),
+                MIN_SPEECH_RATE_MULTIPLIER,
+                MAX_SPEECH_RATE_MULTIPLIER);
         return "<speak version=\"1.0\" xml:lang=\"ko-KR\" xmlns=\"http://www.w3.org/2001/10/synthesis\">"
                 + "<voice name=\"" + settings.getVoiceName() + "\">"
-                + "<prosody rate=\"" + decimal(settings.getSpeechRateMultiplier())
+                + "<prosody rate=\"" + decimal(effectiveRate)
                 + "\" pitch=\"" + pitch(PITCH_MULTIPLIER)
                 + "\" volume=\"" + volume(settings.getVolumeMultiplier()) + "\">"
                 + escapeXml(ttsText)
                 + "</prosody></voice></speak>";
+    }
+
+    private BigDecimal rateDelta(VoiceGuidanceMode guidanceMode) {
+        return switch (guidanceMode == null ? VoiceGuidanceMode.STANDARD : guidanceMode) {
+            case SUPPORT -> new BigDecimal("-0.05");
+            case COMPACT -> new BigDecimal("0.05");
+            case STANDARD -> BigDecimal.ZERO;
+        };
+    }
+
+    private BigDecimal clamp(BigDecimal value, BigDecimal minimum, BigDecimal maximum) {
+        if (value.compareTo(minimum) < 0) {
+            return minimum;
+        }
+        return value.compareTo(maximum) > 0 ? maximum : value;
     }
 
     private UserVoiceSettingsVo normalize(UserVoiceSettingsVo settings) {

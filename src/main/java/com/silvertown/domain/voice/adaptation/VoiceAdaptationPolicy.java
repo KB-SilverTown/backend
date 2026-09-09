@@ -59,6 +59,9 @@ public class VoiceAdaptationPolicy {
         if (signals.contains(VoiceAdaptationSignal.SLOWER_REQUEST)) {
             return supportCurrentSession(state, currentDecisionStep);
         }
+        if (signals.contains(VoiceAdaptationSignal.LOUDER_REQUEST)) {
+            return supportCurrentSession(state, currentDecisionStep);
+        }
         if (signals.contains(VoiceAdaptationSignal.FINANCIAL_RECONFIRMATION)
                 || signals.contains(VoiceAdaptationSignal.LOW_STT_CONFIDENCE)) {
             return supportCurrentStep(state, currentDecisionStep);

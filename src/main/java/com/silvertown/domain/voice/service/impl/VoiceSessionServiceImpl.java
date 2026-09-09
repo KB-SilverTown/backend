@@ -22,6 +22,7 @@ import com.silvertown.domain.voice.mapper.DialogueTurnMapper;
 import com.silvertown.domain.voice.mapper.VoiceInteractionCardMapper;
 import com.silvertown.domain.voice.mapper.VoiceSessionMapper;
 import com.silvertown.domain.voice.service.VoiceSessionService;
+import com.silvertown.domain.voice.service.VoiceGuidanceSettingsService;
 import com.silvertown.domain.voice.service.VoiceSessionPromptProvider;
 import com.silvertown.domain.voice.service.VoiceSsmlRenderer;
 import com.silvertown.domain.voice.service.VoiceTransferOrchestrator;
@@ -56,6 +57,7 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
     private final VoiceSessionPromptProvider voiceSessionPromptProvider;
     private final VoiceSsmlRenderer voiceSsmlRenderer;
     private final VoiceAdaptationSessionStateStore voiceAdaptationSessionStateStore;
+    private final VoiceGuidanceSettingsService voiceGuidanceSettingsService;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -72,7 +74,8 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
             Clock clock) {
         this(voiceSessionMapper, accountMapper, voiceTransferOrchestrator, voiceInteractionCardMapper,
                 dialogueTurnMapper, voiceSessionPromptProvider, voiceSsmlRenderer,
-                new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy()), objectMapper, clock);
+                new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy()),
+                new VoiceGuidanceSettingsService(null), objectMapper, clock);
     }
 
     @Override
@@ -95,6 +98,9 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
         voiceSession.setStartedAt(now);
         voiceSession.setExpiresAt(expiresAt);
         voiceSessionMapper.insert(voiceSession);
+        voiceAdaptationSessionStateStore.initialize(
+                voiceSession.getSessionId(), DialogueStep.AWAITING_INPUT,
+                voiceGuidanceSettingsService.initialMode(userId));
         String firstPrompt = voiceSessionPromptProvider.firstPromptFor(entryPoint);
         saveFirstPrompt(userId, voiceSession.getSessionId(), firstPrompt);
 
@@ -130,6 +136,8 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
                     voiceSession.getCurrentStep(),
                     LocalDateTime.now(clock));
             voiceInteractionCardMapper.deactivateActiveBySessionId(sessionId);
+            voiceGuidanceSettingsService.completeSession(
+                    userId, voiceAdaptationSessionStateStore.stateOf(sessionId));
             voiceAdaptationSessionStateStore.clear(sessionId);
             voiceSession = findOwnedAndExpireIfNeeded(userId, sessionId);
         }
@@ -176,6 +184,8 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
                     userId, sessionId, VoiceSessionStatus.EXPIRED.name(),
                     voiceSession.getCurrentStep());
             voiceInteractionCardMapper.deactivateActiveBySessionId(sessionId);
+            voiceGuidanceSettingsService.completeSession(
+                    userId, voiceAdaptationSessionStateStore.stateOf(sessionId));
             voiceAdaptationSessionStateStore.clear(sessionId);
             voiceSession = voiceSessionMapper.findOwnedById(userId, sessionId);
         }
@@ -197,7 +207,11 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
         dialogueTurn.setSequenceNo(dialogueTurnMapper.findNextSequenceNo(sessionId));
         dialogueTurn.setSpeaker(AI_SPEAKER);
         dialogueTurn.setTtsText(firstPrompt);
-        dialogueTurn.setTtsSsml(voiceSsmlRenderer.render(userId, firstPrompt));
+        var state = voiceAdaptationSessionStateStore.stateOf(sessionId);
+        var mode = state == null ? com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD : state.mode();
+        dialogueTurn.setTtsSsml(mode == com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD
+                ? voiceSsmlRenderer.render(userId, firstPrompt)
+                : voiceSsmlRenderer.render(userId, firstPrompt, mode));
         dialogueTurn.setStep(DialogueStep.AWAITING_INPUT.name());
         dialogueTurn.setReplayCount(0);
         dialogueTurn.setInterrupted(false);

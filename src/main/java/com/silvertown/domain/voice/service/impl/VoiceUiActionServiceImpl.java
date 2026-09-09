@@ -10,6 +10,8 @@ import com.silvertown.domain.transfer.dto.AmountValidationResponse;
 import com.silvertown.domain.transfer.dto.TransferResponse;
 import com.silvertown.domain.voice.dto.VoiceUiActionRequest;
 import com.silvertown.domain.voice.dto.VoiceUiActionResponse;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationSessionStateStore;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationPolicy;
 import com.silvertown.domain.voice.enums.DialogueStep;
 import com.silvertown.domain.voice.enums.VoiceNextAction;
 import com.silvertown.domain.voice.enums.VoiceSessionStatus;
@@ -19,6 +21,8 @@ import com.silvertown.domain.voice.mapper.VoiceInteractionCardMapper;
 import com.silvertown.domain.voice.mapper.VoiceSessionMapper;
 import com.silvertown.domain.voice.mapper.VoiceUiActionMapper;
 import com.silvertown.domain.voice.service.VoiceSsmlRenderer;
+import com.silvertown.domain.voice.service.VoiceGuidanceTemplateRenderer;
+import com.silvertown.domain.voice.service.VoiceGuidanceSettingsService;
 import com.silvertown.domain.voice.service.VoiceTransferOrchestrator;
 import com.silvertown.domain.voice.service.VoiceTransferPreparation;
 import com.silvertown.domain.voice.service.VoiceUiActionService;
@@ -55,6 +59,25 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
     private final VoiceSsmlRenderer voiceSsmlRenderer;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final VoiceAdaptationSessionStateStore voiceAdaptationSessionStateStore;
+    private final VoiceGuidanceTemplateRenderer voiceGuidanceTemplateRenderer;
+    private final VoiceGuidanceSettingsService voiceGuidanceSettingsService;
+
+    /** Compatibility constructor retained for focused tests that do not load Spring. */
+    public VoiceUiActionServiceImpl(
+            VoiceSessionMapper voiceSessionMapper,
+            VoiceInteractionCardMapper voiceInteractionCardMapper,
+            VoiceUiActionMapper voiceUiActionMapper,
+            DialogueTurnMapper dialogueTurnMapper,
+            VoiceTransferOrchestrator voiceTransferOrchestrator,
+            VoiceSsmlRenderer voiceSsmlRenderer,
+            ObjectMapper objectMapper,
+            Clock clock) {
+        this(voiceSessionMapper, voiceInteractionCardMapper, voiceUiActionMapper, dialogueTurnMapper,
+                voiceTransferOrchestrator, voiceSsmlRenderer, objectMapper, clock,
+                new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy()),
+                new VoiceGuidanceTemplateRenderer(), new VoiceGuidanceSettingsService(null));
+    }
 
     @Override
     @Transactional
@@ -85,6 +108,9 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
         if (outcome.closeSession()) {
             voiceSessionMapper.closeOwned(
                     userId, sessionId, DialogueStep.CANCELLED.name(), LocalDateTime.now(clock));
+            voiceGuidanceSettingsService.completeSession(
+                    userId, voiceAdaptationSessionStateStore.stateOf(sessionId));
+            voiceAdaptationSessionStateStore.clear(sessionId);
         } else if (voiceSessionMapper.updateStatusAndStep(
                 userId, sessionId, VoiceSessionStatus.SPEAKING.name(), outcome.state().name()) != 1) {
             throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
@@ -101,7 +127,12 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
         action.setRequestHash(requestHash);
         action.setResponseTurnId(responseTurnId);
         voiceUiActionMapper.insert(action);
-        return response(userId, sessionId, request.getActionId(), responseTurnId, outcome);
+        VoiceUiActionResponse response = response(userId, sessionId, request.getActionId(), responseTurnId, outcome);
+        if (response.getTtsText() != null) {
+            voiceAdaptationSessionStateStore.responseRendered(
+                    sessionId, DialogueStep.valueOf(session.getCurrentStep()));
+        }
+        return response;
     }
 
     private VoiceUiActionResponse reuseOrReject(
@@ -392,8 +423,9 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
         turn.setSpeaker(AI_SPEAKER);
         turn.setStep(outcome.state().name());
         turn.setIntent(outcome.intent());
-        turn.setTtsText(outcome.ttsText());
-        turn.setTtsSsml(outcome.ttsText() == null ? null : voiceSsmlRenderer.render(userId, outcome.ttsText()));
+        String renderedText = renderedText(sessionId, outcome);
+        turn.setTtsText(renderedText);
+        turn.setTtsSsml(renderedText == null ? null : renderSsml(userId, renderedText, sessionId));
         turn.setDisplayCard(writeJson(outcome.displayCard()));
         ObjectNode stored = objectMapper.createObjectNode();
         stored.set("slots", objectMapper.createObjectNode());
@@ -410,8 +442,23 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
             String userId, String sessionId, String actionId, String responseTurnId, ActionOutcome outcome) {
         return new VoiceUiActionResponse(
                 sessionId, actionId, responseTurnId, outcome.state(), outcome.intent(), "NONE", Map.of(),
-                null, outcome.ttsText(), outcome.ttsText() == null ? null : voiceSsmlRenderer.render(userId, outcome.ttsText()),
+                null, renderedText(sessionId, outcome), outcome.ttsText() == null ? null
+                        : renderSsml(userId, renderedText(sessionId, outcome), sessionId),
                 outcome.displayCard(), null, outcome.draftSummary(), outcome.nextAction());
+    }
+
+    private String renderedText(String sessionId, ActionOutcome outcome) {
+        var state = voiceAdaptationSessionStateStore.stateOf(sessionId);
+        var mode = state == null ? com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD : state.mode();
+        return voiceGuidanceTemplateRenderer.render(outcome.ttsText(), outcome.displayCard(), mode);
+    }
+
+    private String renderSsml(String userId, String text, String sessionId) {
+        var state = voiceAdaptationSessionStateStore.stateOf(sessionId);
+        var mode = state == null ? com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD : state.mode();
+        return mode == com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD
+                ? voiceSsmlRenderer.render(userId, text)
+                : voiceSsmlRenderer.render(userId, text, mode);
     }
 
     private VoiceUiActionResponse storedResponse(String sessionId, String actionId, DialogueTurnVo turn) {
