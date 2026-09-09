@@ -951,6 +951,44 @@ class VoiceTurnServiceImplTest {
     }
 
     @Test
+    void releasesStaleBackendStreamInputBeforeAcceptingTextFallback() throws Exception {
+        VoiceSessionVo staleInput = processingBackendTransferSession();
+        staleInput.setActiveInputTurnId("20000000-0000-0000-0000-000000000099");
+        staleInput.setLifecycleGeneration(7);
+        VoiceSessionVo processingTextTurn = processingBackendTransferSession();
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(staleInput, processingTextTurn);
+        when(voiceSessionMapper.cancelActiveInputTurn(
+                eq(USER_ID),
+                eq(SESSION_ID),
+                eq("20000000-0000-0000-0000-000000000099"),
+                eq(7L),
+                any())).thenReturn(1);
+        when(voiceSessionMapper.claimForTurn(eq(USER_ID), eq(SESSION_ID), any())).thenReturn(1);
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(2, 3);
+        when(voiceTurnAnalysisPort.analyze(any())).thenReturn(analysis());
+        when(voiceSessionMapper.completeTurn(USER_ID, SESSION_ID, DialogueStep.AWAITING_AMOUNT.name()))
+                .thenReturn(1);
+
+        VoiceTurnResponse response = service.process(
+                USER_ID,
+                SESSION_ID,
+                request("김철수에게 오만원 보내줘", BigDecimal.ONE, DialogueInputType.TEXT));
+
+        assertEquals(DialogueStep.AWAITING_AMOUNT, response.getState());
+        assertEquals(VoiceSessionStatus.LISTENING.name(), staleInput.getStatus());
+        assertEquals(null, staleInput.getActiveInputTurnId());
+        assertEquals(8, staleInput.getLifecycleGeneration());
+        verify(voiceSessionMapper).cancelActiveInputTurn(
+                eq(USER_ID),
+                eq(SESSION_ID),
+                eq("20000000-0000-0000-0000-000000000099"),
+                eq(7L),
+                any());
+        verify(voiceTurnAnalysisPort).analyze(any());
+    }
+
+    @Test
     void acceptsTextGuidanceCommandsOnBackendStreamTransferSessions() throws Exception {
         VoiceSessionVo listening = backendTransferSession();
         listening.setCurrentStep(DialogueStep.AWAITING_CONTINUATION.name());
