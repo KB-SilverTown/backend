@@ -6,29 +6,39 @@ import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
+import org.springframework.web.socket.server.support.OriginHandshakeInterceptor;
 
 @Component
-@RequiredArgsConstructor
 public class VoiceStreamHandshakeInterceptor implements HandshakeInterceptor {
     private static final String STREAM_PROTOCOL = "voice-stream-v1";
     private static final String TICKET_PROTOCOL_PREFIX = "ticket.";
     private static final String WEBSOCKET_PROTOCOL_HEADER = "Sec-WebSocket-Protocol";
 
     private final VoiceStreamTicketService voiceStreamTicketService;
+    private final OriginHandshakeInterceptor originHandshakeInterceptor;
+
+    public VoiceStreamHandshakeInterceptor(VoiceStreamTicketService voiceStreamTicketService) {
+        this.voiceStreamTicketService = voiceStreamTicketService;
+        this.originHandshakeInterceptor = new OriginHandshakeInterceptor(List.of());
+        this.originHandshakeInterceptor.setAllowedOriginPatterns(
+                VoiceStreamWebSocketPolicy.FRONTEND_ORIGIN_PATTERNS);
+    }
 
     @Override
     public boolean beforeHandshake(
             ServerHttpRequest request,
             ServerHttpResponse response,
             WebSocketHandler wsHandler,
-            Map<String, Object> attributes) {
+            Map<String, Object> attributes) throws Exception {
+        if (!originHandshakeInterceptor.beforeHandshake(request, response, wsHandler, attributes)) {
+            return false;
+        }
         String sessionId = sessionIdFrom(request.getURI());
         String opaqueTicket = ticketFrom(request.getHeaders().get(WEBSOCKET_PROTOCOL_HEADER));
         if (sessionId == null || opaqueTicket == null) {
