@@ -62,4 +62,13 @@ class VoiceAdaptationSessionStateStoreTest {
 
         assertNull(store.stateOf(SESSION_ID));
     }
+
+    @Test
+    void firstReaskInANewDecisionStepIsNotClassifiedAsRepeated() {
+        store.recordReask(SESSION_ID, DialogueStep.AWAITING_AMOUNT);
+        store.recordSignals(SESSION_ID, DialogueStep.RECONFIRMING, Set.of(VoiceAdaptationSignal.REPLAY));
+        store.recordReask(SESSION_ID, DialogueStep.RECONFIRMING);
+
+        assertEquals(GuidanceScope.NEXT_RESPONSE, store.stateOf(SESSION_ID).scope());
+    }
 }
