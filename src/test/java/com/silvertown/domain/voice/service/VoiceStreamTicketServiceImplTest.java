@@ -81,7 +81,7 @@ class VoiceStreamTicketServiceImplTest {
         when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(new VoiceSessionDetailResponse(
                 SESSION_ID, VoiceSessionEntryPoint.GENERAL_FINANCE, VoiceSessionStatus.LISTENING,
                 DialogueStep.AWAITING_INPUT, VoiceFlowType.GENERAL_FINANCE, SttMode.CLIENT,
-                null, null, null, null));
+                null, null, null, null, null));
 
         BusinessException exception = assertThrows(
                 BusinessException.class, () -> service.issue(USER_ID, SESSION_ID));
@@ -206,7 +206,7 @@ class VoiceStreamTicketServiceImplTest {
         return new VoiceSessionDetailResponse(
                 SESSION_ID, VoiceSessionEntryPoint.TRANSFER, status, DialogueStep.AWAITING_INPUT,
                 VoiceFlowType.TRANSFER, SttMode.BACKEND_STREAM,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 
     private VoiceStreamTicketVo storedTicket() {

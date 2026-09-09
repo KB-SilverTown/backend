@@ -20,6 +20,7 @@ public class VoiceSessionDetailResponse {
     private final SttMode sttMode;
     private final OffsetDateTime expiresAt;
     private final OffsetDateTime endedAt;
+    private final String activeAiTurnId;
     private final VoiceReplayPayloadResponse latestReplayPayload;
     private final VoiceSessionNavigationResponse navigation;
 }

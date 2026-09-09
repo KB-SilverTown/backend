@@ -270,6 +270,8 @@ class VoiceTurnServiceTransactionIntegrationTest {
                     + "status VARCHAR(20) NOT NULL, current_step VARCHAR(30) NOT NULL, "
                     + "flow_type VARCHAR(30) NOT NULL, stt_mode VARCHAR(20) NOT NULL, "
                     + "entry_point VARCHAR(30) NOT NULL, "
+                    + "active_input_turn_id CHAR(36), active_ai_turn_id CHAR(36), "
+                    + "lifecycle_generation BIGINT NOT NULL DEFAULT 0, "
                     + "started_at TIMESTAMP NOT NULL, ended_at TIMESTAMP NULL, expires_at TIMESTAMP NOT NULL)");
             statement.execute("CREATE TABLE dialogue_turns ("
                     + "turn_id CHAR(36) PRIMARY KEY, session_id CHAR(36) NOT NULL, sequence_no INT NOT NULL, "

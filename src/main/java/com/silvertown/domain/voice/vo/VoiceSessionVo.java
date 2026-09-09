@@ -19,6 +19,9 @@ public class VoiceSessionVo {
     private String flowType;
     private String sttMode;
     private String entryPoint;
+    private String activeInputTurnId;
+    private String activeAiTurnId;
+    private long lifecycleGeneration;
     private LocalDateTime startedAt;
     private LocalDateTime endedAt;
     private LocalDateTime expiresAt;

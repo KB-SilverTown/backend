@@ -57,7 +57,7 @@ class VoiceSessionControllerContractTest {
                         SESSION_ID.toString(), VoiceSessionEntryPoint.GENERAL_FINANCE,
                         VoiceSessionStatus.LISTENING, DialogueStep.AWAITING_INPUT,
                         VoiceFlowType.GENERAL_FINANCE, SttMode.CLIENT,
-                        OffsetDateTime.parse("2026-09-02T10:15:00+09:00"), null, null, null));
+                        OffsetDateTime.parse("2026-09-02T10:15:00+09:00"), null, null, null, null));
 
         mockMvc = MockMvcBuilders.standaloneSetup(
                         new VoiceSessionController(service, new AuthenticatedUserId()))

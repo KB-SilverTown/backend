@@ -179,6 +179,7 @@ class VoiceSessionServiceImplTest {
     @Test
     void getsOwnedSessionWithLatestReplayPayload() {
         VoiceSessionVo voiceSession = voiceSession(VoiceSessionStatus.LISTENING, null);
+        voiceSession.setActiveAiTurnId("30000000-0000-0000-0000-000000000001");
         DialogueTurnVo dialogueTurn = new DialogueTurnVo();
         dialogueTurn.setTtsText("다시 안내해 드릴게요.");
         dialogueTurn.setTtsSsml("<speak>다시 안내해 드릴게요.</speak>");
@@ -192,6 +193,7 @@ class VoiceSessionServiceImplTest {
 
         assertEquals(SESSION_ID.toString(), response.getSessionId());
         assertEquals(VoiceSessionStatus.LISTENING, response.getStatus());
+        assertEquals("30000000-0000-0000-0000-000000000001", response.getActiveAiTurnId());
         assertEquals("다시 안내해 드릴게요.", response.getLatestReplayPayload().getTtsText());
         assertEquals("balance", response.getLatestReplayPayload().getDisplayCard().get("type").asText());
     }

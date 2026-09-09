@@ -535,6 +535,7 @@ class VoiceStreamWebSocketHandlerTest {
                 null,
                 null,
                 null,
+                null,
                 null);
     }
 }
