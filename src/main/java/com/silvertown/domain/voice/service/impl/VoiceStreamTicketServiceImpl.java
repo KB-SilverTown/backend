@@ -70,7 +70,9 @@ public class VoiceStreamTicketServiceImpl implements VoiceStreamTicketService {
         LocalDateTime now = LocalDateTime.now(clock);
         VoiceStreamTicketVo ticket = voiceStreamTicketMapper.findUnusedUnexpiredByHash(
                 sha256(opaqueTicket), now);
-        if (ticket == null || !sessionId.equals(ticket.getSessionId())) {
+        if (ticket == null
+                || !sessionId.equals(ticket.getSessionId())
+                || !isEligibleStreamSessionForHandshake(ticket)) {
             return Optional.empty();
         }
 
@@ -87,6 +89,17 @@ public class VoiceStreamTicketServiceImpl implements VoiceStreamTicketService {
         if (voiceSession.getStatus() == VoiceSessionStatus.CLOSED
                 || voiceSession.getStatus() == VoiceSessionStatus.EXPIRED) {
             throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
+        }
+    }
+
+    private boolean isEligibleStreamSessionForHandshake(VoiceStreamTicketVo ticket) {
+        try {
+            VoiceSessionDetailResponse voiceSession = voiceSessionService.get(
+                    ticket.getUserId(), ticket.getSessionId());
+            requireEligibleStreamSession(voiceSession);
+            return true;
+        } catch (BusinessException exception) {
+            return false;
         }
     }
 
