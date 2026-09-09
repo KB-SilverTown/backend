@@ -9,11 +9,14 @@ import org.junit.jupiter.api.Test;
 class VoiceStreamWebSocketPolicyTest {
 
     @Test
-    void acceptsOnlyTheConfirmedExplicitFrontendOrigins() {
+    void acceptsExplicitWebAndCapacitorAndroidOrigins() {
         VoiceStreamWebSocketPolicy policy =
-                new VoiceStreamWebSocketPolicy("http://localhost:5173, https://localhost");
+                new VoiceStreamWebSocketPolicy(
+                        "http://localhost:5173, http://localhost, https://localhost");
 
-        assertEquals(List.of("http://localhost:5173", "https://localhost"), policy.allowedOrigins());
+        assertEquals(
+                List.of("http://localhost:5173", "http://localhost", "https://localhost"),
+                policy.allowedOrigins());
     }
 
     @Test

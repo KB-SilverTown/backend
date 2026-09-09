@@ -11,7 +11,7 @@ public final class VoiceStreamWebSocketPolicy {
     private final List<String> allowedOrigins;
 
     public VoiceStreamWebSocketPolicy(
-            @Value("${voice.stream.allowed-origins:${VOICE_STREAM_ALLOWED_ORIGINS:http://localhost:5173,https://localhost}}")
+            @Value("${voice.stream.allowed-origins:${VOICE_STREAM_ALLOWED_ORIGINS:http://localhost:5173,http://localhost,https://localhost}}")
                     String configuredOrigins) {
         this.allowedOrigins = parseAllowedOrigins(configuredOrigins);
     }
