@@ -108,16 +108,20 @@ public class TransferController {
     @PostMapping("/{transferId}/authenticate")
     public ResponseEntity<TransferAuthenticationResponse> authenticate(
             @PathVariable UUID transferId, @Valid @RequestBody TransferPinRequest request,
+            @RequestHeader(value = "Confirmation-Token", required = false) String confirmationToken,
             Authentication authentication) {
-        return ResponseEntity.ok(transferService.authenticate(authenticatedUserId.from(authentication), transferId, request));
+        return ResponseEntity.ok(transferService.authenticate(
+                authenticatedUserId.from(authentication), transferId, confirmationToken, request));
     }
 
     @ApiOperation("송금 실행")
     @PostMapping("/{transferId}/execute")
     public ResponseEntity<TransferResultResponse> execute(
             @PathVariable UUID transferId, @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Confirmation-Token", required = false) String confirmationToken,
             Authentication authentication) {
-        return ResponseEntity.ok(transferService.execute(authenticatedUserId.from(authentication), transferId, idempotencyKey));
+        return ResponseEntity.ok(transferService.execute(
+                authenticatedUserId.from(authentication), transferId, confirmationToken, idempotencyKey));
     }
     @ApiOperation("송금 취소")
     @DeleteMapping("/{transferId}")

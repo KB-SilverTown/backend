@@ -13,5 +13,7 @@ public class TransferConfirmResponse {
     private final String currentStep;
     private final boolean confirmed;
     private final boolean executable;
+    private final String confirmationToken;
+    private final OffsetDateTime confirmationTokenExpiresAt;
     private final OffsetDateTime approvedAt;
 }

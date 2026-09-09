@@ -13,6 +13,8 @@
     <result property="recognizedAmount" column="recognized_amount"/>
     <result property="amountCandidates" column="amount_candidates"/>
     <result property="amountReconfirmRequired" column="amount_reconfirm_required"/>
+    <result property="confirmationTokenHash" column="confirmation_token_hash"/>
+    <result property="confirmationTokenExpiresAt" column="confirmation_token_expires_at"/>
     <result property="preparedAt" column="prepared_at"/>
     <result property="approvedAt" column="approved_at"/>
     <result property="executedAt" column="executed_at"/>
@@ -59,6 +61,7 @@
     SELECT t.transfer_id, t.user_id, t.session_id, t.from_account_id,
            t.recipient_id, t.amount, t.status, t.current_step,
            t.recognized_amount, t.amount_candidates, t.amount_reconfirm_required,
+           t.confirmation_token_hash, t.confirmation_token_expires_at,
            t.prepared_at, t.approved_at, t.executed_at,
            r.display_name AS recipient_display_name, r.bank_code AS recipient_bank_code,
            r.account_number_enc AS recipient_account_number_enc
@@ -71,6 +74,7 @@
     SELECT t.transfer_id, t.user_id, t.session_id, t.from_account_id,
            t.recipient_id, t.amount, t.status, t.current_step,
            t.recognized_amount, t.amount_candidates, t.amount_reconfirm_required,
+           t.confirmation_token_hash, t.confirmation_token_expires_at,
            t.prepared_at, t.approved_at, t.executed_at,
            r.display_name AS recipient_display_name, r.bank_code AS recipient_bank_code,
            r.account_number_enc AS recipient_account_number_enc
@@ -84,6 +88,7 @@
     SELECT t.transfer_id, t.user_id, t.session_id, t.from_account_id,
            t.recipient_id, t.amount, t.status, t.current_step,
            t.recognized_amount, t.amount_candidates, t.amount_reconfirm_required,
+           t.confirmation_token_hash, t.confirmation_token_expires_at,
            t.prepared_at, t.approved_at, t.executed_at,
            r.display_name AS recipient_display_name, r.bank_code AS recipient_bank_code,
            r.account_number_enc AS recipient_account_number_enc
@@ -116,10 +121,21 @@
   </select>
   <update id="confirmIfRiskChecked">
     UPDATE transfers
-    SET status = 'CONFIRMED', current_step = 'AUTHENTICATE', approved_at = CURRENT_TIMESTAMP(6)
+    SET status = 'CONFIRMED', current_step = 'AUTHENTICATE',
+        confirmation_token_hash = #{confirmationTokenHash},
+        confirmation_token_expires_at = #{confirmationTokenExpiresAt},
+        approved_at = CURRENT_TIMESTAMP(6)
     WHERE user_id = #{userId, jdbcType=CHAR}
       AND transfer_id = #{transferId, jdbcType=CHAR}
       AND status IN ('DRAFT', 'RECONFIRM')
+  </update>
+  <update id="refreshConfirmationToken">
+    UPDATE transfers
+    SET confirmation_token_hash = #{confirmationTokenHash},
+        confirmation_token_expires_at = #{confirmationTokenExpiresAt}
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND transfer_id = #{transferId, jdbcType=CHAR}
+      AND status = 'CONFIRMED'
   </update>
   <insert id="insertConfirmation" parameterType="com.silvertown.domain.transfer.vo.TransferConfirmation">
     INSERT INTO transfer_confirmations (
