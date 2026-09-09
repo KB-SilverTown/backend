@@ -49,8 +49,8 @@ class AccountRecipientControllerContractTest {
                 new AccountController(accountService, authenticatedUserId),
                 new RecipientController(recipientService, authenticatedUserId))
                 .setMessageConverters(
-                        new MappingJackson2HttpMessageConverter(objectMapper),
-                        new MappingJackson2XmlHttpMessageConverter())
+                        new MappingJackson2XmlHttpMessageConverter(),
+                        new MappingJackson2HttpMessageConverter(objectMapper))
                 .build();
     }
 
