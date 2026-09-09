@@ -25,7 +25,7 @@ public class VoiceAdaptationSessionStateStore {
             return;
         }
         states.compute(sessionId, (key, current) -> transition(current, currentDecisionStep, signals,
-                current == null ? 0 : current.reaskCount()));
+                current == null ? 0 : current.reaskCount(), false));
     }
 
     public void recordReask(String sessionId, DialogueStep currentDecisionStep) {
@@ -34,7 +34,7 @@ public class VoiceAdaptationSessionStateStore {
                     ? current.reaskCount() + 1 : 1;
             Set<VoiceAdaptationSignal> signals = nextReaskCount >= 2
                     ? Set.of(VoiceAdaptationSignal.REPEATED_REASK) : Set.of();
-            return transition(current, currentDecisionStep, signals, nextReaskCount);
+            return transition(current, currentDecisionStep, signals, nextReaskCount, true);
         });
     }
 
@@ -50,7 +50,8 @@ public class VoiceAdaptationSessionStateStore {
         states.remove(sessionId);
     }
 
-    VoiceAdaptationState stateOf(String sessionId) {
+    /** Returns the current short-lived state for the response renderer. */
+    public VoiceAdaptationState stateOf(String sessionId) {
         SessionState state = states.get(sessionId);
         return state == null ? null : state.policyState();
     }
@@ -59,12 +60,17 @@ public class VoiceAdaptationSessionStateStore {
             SessionState current,
             DialogueStep currentDecisionStep,
             Set<VoiceAdaptationSignal> signals,
-            int reaskCount) {
+            int reaskCount,
+            boolean preserveNewReaskCount) {
         VoiceAdaptationState previous = current == null
                 ? VoiceAdaptationState.initial(currentDecisionStep) : current.policyState();
         VoiceAdaptationDecision decision = policy.decide(
                 previous, currentDecisionStep, signals, DEFAULT_SPEECH_RATE);
-        return new SessionState(decision.nextState(), currentDecisionStep, reaskCount);
+        boolean decisionStepChanged = current != null && current.reaskStep() != currentDecisionStep;
+        return new SessionState(
+                decision.nextState(),
+                currentDecisionStep,
+                decisionStepChanged && !preserveNewReaskCount ? 0 : reaskCount);
     }
 
     private record SessionState(

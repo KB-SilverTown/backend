@@ -125,7 +125,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
 
     @Override
     public VoiceTurnResponse process(String userId, String sessionId, VoiceTurnRequest request) {
-        return processInternal(userId, sessionId, request,
+        return processInternal(userId, sessionId, request, false,
                 voiceSession -> analyzeRawOrContinuationTurn(request, voiceSession));
     }
 
@@ -137,7 +137,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         }
         BigDecimal confidence = result.confidence() == null ? BigDecimal.ZERO : result.confidence();
         VoiceTurnRequest request = VoiceTurnRequest.azureFinal(turnId, result.transcript(), confidence);
-        return processInternal(userId, sessionId, request, voiceSession -> {
+        return processInternal(userId, sessionId, request, true, voiceSession -> {
             VoiceTurnAnalysisResult contextual = resolveVoiceCardContext(request, voiceSession);
             return contextual != null ? contextual : analyzeAzureTransferFinal(request, result, voiceSession);
         });
@@ -147,6 +147,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
             String userId,
             String sessionId,
             VoiceTurnRequest request,
+            boolean azureTransferFinal,
             java.util.function.Function<VoiceSessionVo, VoiceTurnAnalysisResult> analysisResolver) {
         TurnClaim claim = claimTurn(userId, sessionId, request);
         if (claim.existingUserTurn() != null) {
@@ -155,6 +156,9 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
 
         try {
             VoiceGuidanceCommand command = voiceGuidanceCommandParser.parse(request.getTranscript()).orElse(null);
+            if (command != null && !azureTransferFinal) {
+                rejectRawBackendTransferTurn(claim.voiceSession());
+            }
             VoiceTurnAnalysisResult resolved = command == null
                     ? analysisResolver.apply(claim.voiceSession())
                     : adaptationCommandResponse(request, claim.voiceSession());
@@ -174,6 +178,13 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
 
     private VoiceTurnAnalysisResult adaptationCommandResponse(
             VoiceTurnRequest request, VoiceSessionVo voiceSession) {
+        DialogueStep currentStep = DialogueStep.valueOf(voiceSession.getCurrentStep());
+        if (currentStep == DialogueStep.AWAITING_CONTINUATION) {
+            return voiceProgressPromptFactory.clarifyContinuation();
+        }
+        if (currentStep == DialogueStep.RISK_CHECK) {
+            return riskCheckGuidanceCommandResponse(voiceSession);
+        }
         VoiceTurnAnalysisResult contextual = resolveVoiceCardContext(request, voiceSession);
         if (contextual != null) {
             return contextual;
@@ -183,6 +194,22 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
             throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
         }
         return voiceProgressPromptFactory.resumePrompt(source);
+    }
+
+    private VoiceTurnAnalysisResult riskCheckGuidanceCommandResponse(VoiceSessionVo voiceSession) {
+        VoiceInteractionCardVo card = voiceInteractionCardMapper.findBySessionId(voiceSession.getSessionId());
+        if (card == null || !card.isActive() || !"TRANSFER_RISK_CHECK".equals(card.getCardType())
+                || voiceSession.getTransferId() == null) {
+            throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
+        }
+        TransferResponse transfer = voiceTransferOrchestrator.getTransfer(
+                UUID.fromString(voiceSession.getUserId()), UUID.fromString(voiceSession.getTransferId()));
+        return contextualResult(
+                DialogueStep.RISK_CHECK,
+                "안전을 위해 돈을 보내는 이유를 말씀해 주세요.",
+                transferCard("TRANSFER_RISK_CHECK", transfer),
+                VoiceNextAction.NONE,
+                null);
     }
 
     private void completeAdaptationSignalHandling(
