@@ -163,6 +163,17 @@ class TransferAuthenticationServiceTest {
     }
 
     @Test
+    void rejectsPinAuthenticationForMismatchedConfirmationToken() throws Exception {
+        UUID userId = UUID.randomUUID(); UUID transferId = UUID.randomUUID();
+        when(mapper.findOwnedByIdForUpdate(anyString(), anyString())).thenReturn(confirmed(transferId, userId));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.authenticate(userId, transferId, "different-token", pinRequest()));
+
+        assertEquals(ErrorCode.TRANSFER_CONFIRMATION_INVALID, exception.getErrorCode());
+    }
+
+    @Test
     void rejectsExecutionAfterTheConfirmationTokenExpires() {
         UUID userId = UUID.randomUUID(); UUID transferId = UUID.randomUUID();
         Transfer transfer = confirmed(transferId, userId);
