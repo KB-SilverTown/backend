@@ -915,12 +915,49 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 return TurnClaim.existing(voiceSession, existingUserTurn);
             }
 
+            cancelStaleBackendStreamInputForTextFallback(userId, sessionId, voiceSession, request);
             rejectUnavailableSession(voiceSession);
             if (voiceSessionMapper.claimForTurn(userId, sessionId, LocalDateTime.now(clock)) != 1) {
                 throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
             }
             return TurnClaim.claimed(voiceSession);
         });
+    }
+
+    /**
+     * A text fallback can arrive after the browser has lost its WebSocket before it can send
+     * BARGE_IN.  Release only that unfinished backend-stream input, using the same generation
+     * guarded transition as BARGE_IN, before claiming the explicit text turn.  Raw HTTP VOICE
+     * turns remain rejected for backend-stream transfer sessions.
+     */
+    private void cancelStaleBackendStreamInputForTextFallback(
+            String userId, String sessionId, VoiceSessionVo voiceSession, VoiceTurnRequest request) {
+        if (request.getInputType() != DialogueInputType.TEXT
+                || VoiceFlowType.valueOf(voiceSession.getFlowType()) != VoiceFlowType.TRANSFER
+                || SttMode.valueOf(voiceSession.getSttMode()) != SttMode.BACKEND_STREAM
+                || isBlank(voiceSession.getActiveInputTurnId())
+                || voiceSession.getActiveAiTurnId() != null
+                || (VoiceSessionStatus.valueOf(voiceSession.getStatus()) != VoiceSessionStatus.LISTENING
+                        && VoiceSessionStatus.valueOf(voiceSession.getStatus())
+                                != VoiceSessionStatus.PROCESSING)) {
+            return;
+        }
+
+        String activeInputTurnId = voiceSession.getActiveInputTurnId();
+        long lifecycleGeneration = voiceSession.getLifecycleGeneration();
+        if (voiceSessionMapper.cancelActiveInputTurn(
+                        userId,
+                        sessionId,
+                        activeInputTurnId,
+                        lifecycleGeneration,
+                        LocalDateTime.now(clock))
+                != 1) {
+            throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
+        }
+
+        voiceSession.setStatus(VoiceSessionStatus.LISTENING.name());
+        voiceSession.setActiveInputTurnId(null);
+        voiceSession.setLifecycleGeneration(lifecycleGeneration + 1);
     }
 
     /**
