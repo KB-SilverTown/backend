@@ -929,6 +929,28 @@ class VoiceTurnServiceImplTest {
     }
 
     @Test
+    void acceptsTextFallbackOnBackendStreamTransferSessions() throws Exception {
+        VoiceSessionVo listening = backendTransferSession();
+        VoiceSessionVo processing = processingBackendTransferSession();
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(listening, processing);
+        when(voiceSessionMapper.claimForTurn(eq(USER_ID), eq(SESSION_ID), any())).thenReturn(1);
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(2, 3);
+        when(voiceTurnAnalysisPort.analyze(any())).thenReturn(analysis());
+        when(voiceSessionMapper.completeTurn(USER_ID, SESSION_ID, DialogueStep.AWAITING_AMOUNT.name()))
+                .thenReturn(1);
+
+        VoiceTurnResponse response = service.process(
+                USER_ID,
+                SESSION_ID,
+                request("김철수에게 오만원 보내줘", BigDecimal.ONE, DialogueInputType.TEXT));
+
+        assertEquals(DialogueStep.AWAITING_AMOUNT, response.getState());
+        verify(voiceTurnAnalysisPort).analyze(any());
+        verify(dialogueTurnMapper, times(2)).insert(any());
+    }
+
+    @Test
     void blocksGuidanceCommandsOnTheRawBackendStreamTransferPath() throws Exception {
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
                 .thenReturn(backendTransferSession());
