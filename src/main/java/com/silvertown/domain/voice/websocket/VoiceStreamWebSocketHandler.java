@@ -349,7 +349,11 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         }
         if (!active.matchesLastReceivedSequence(lastReceivedSequence)) {
             active.cancelled.set(true);
-            scheduleCloseActive(active);
+            try {
+                cancelInputLifecycle(active);
+            } finally {
+                scheduleCloseActive(active);
+            }
             throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
         }
         synchronized (streamLifecycleMonitor) {
@@ -497,10 +501,21 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
     }
 
     private void closeExpiredDetachedStream(ActiveStream active) {
+        boolean expired = false;
         synchronized (streamLifecycleMonitor) {
-            if (active.isResumeExpired()) {
-                scheduleCloseActive(active);
+            if (activeVoiceStreams.get(streamKey(active.voiceSessionId, active.inputTurnId)) == active
+                    && active.isResumeExpired()) {
+                active.cancelled.set(true);
+                expired = true;
             }
+        }
+        if (!expired) {
+            return;
+        }
+        try {
+            cancelInputLifecycle(active);
+        } finally {
+            scheduleCloseActive(active);
         }
     }
 
