@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.silvertown.domain.voice.websocket.VoiceStreamWebSocketPolicy;
 import java.io.IOException;
 import java.util.Locale;
 import org.junit.jupiter.api.Test;
@@ -18,13 +19,13 @@ import org.springframework.web.cors.DefaultCorsProcessor;
 class SecurityConfigCorsTest {
 
     private final CorsConfiguration corsConfiguration =
-            new SecurityConfig(null, null)
+            new SecurityConfig(null, null, originPolicy())
                     .corsConfigurationSource()
                     .getCorsConfiguration(new MockHttpServletRequest());
 
     @Test
     void allowsTransferPreflightWithConfirmationAndIdempotencyHeaders() throws IOException {
-        SecurityConfig securityConfig = new SecurityConfig(null, null);
+        SecurityConfig securityConfig = new SecurityConfig(null, null, originPolicy());
         MockHttpServletRequest request = new MockHttpServletRequest(
                 "OPTIONS", "/api/transfers/00000000-0000-0000-0000-000000000001/execute");
         request.addHeader(HttpHeaders.ORIGIN, "http://localhost:5173");
@@ -48,27 +49,37 @@ class SecurityConfigCorsTest {
 
     @Test
     void allowsPreflightFromConfirmedFrontendOrigin() throws Exception {
-        PreflightResult result = processPreflight("http://localhost:4173");
+        PreflightResult result = processPreflight("http://localhost:5173");
 
         assertThat(result.accepted(), is(true));
         assertThat(
                 result.response().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN),
-                is("http://localhost:4173"));
+                is("http://localhost:5173"));
     }
 
     @Test
-    void allowsPreflightFromCapacitorFrontend() throws Exception {
-        PreflightResult result = processPreflight("capacitor://localhost");
+    void allowsPreflightFromAndroidCapacitorWebView() throws Exception {
+        PreflightResult result = processPreflight("https://localhost");
 
         assertThat(result.accepted(), is(true));
         assertThat(
                 result.response().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN),
-                is("capacitor://localhost"));
+                is("https://localhost"));
     }
 
     @Test
     void rejectsPreflightFromUnconfirmedOrigin() throws Exception {
         PreflightResult result = processPreflight("https://untrusted.example");
+
+        assertThat(result.accepted(), is(false));
+        assertThat(
+                result.response().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN),
+                is(nullValue()));
+    }
+
+    @Test
+    void rejectsAnotherLocalhostPortThatIsNotExplicitlyAllowed() throws Exception {
+        PreflightResult result = processPreflight("http://localhost:4173");
 
         assertThat(result.accepted(), is(false));
         assertThat(
@@ -86,6 +97,10 @@ class SecurityConfigCorsTest {
                 .processRequest(corsConfiguration, request, response);
 
         return new PreflightResult(accepted, response);
+    }
+
+    private static VoiceStreamWebSocketPolicy originPolicy() {
+        return new VoiceStreamWebSocketPolicy("http://localhost:5173,https://localhost");
     }
 
     private record PreflightResult(boolean accepted, MockHttpServletResponse response) {}
