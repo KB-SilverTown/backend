@@ -23,8 +23,8 @@ class VoiceGuidanceSettingsServiceTest {
     @Test
     void persistsExplicitSpeedAndVolumeChangesWithinBounds() {
         UserVoiceSettingsMapper mapper = Mockito.mock(UserVoiceSettingsMapper.class);
-        UserVoiceSettingsVo stored = settings("1.20", "1.00");
-        when(mapper.findByUserId(USER_ID)).thenReturn(stored);
+        when(mapper.findByUserId(USER_ID)).thenReturn(
+                settings("1.20", "1.00"), settings("1.20", "1.00"));
         VoiceGuidanceSettingsService service = new VoiceGuidanceSettingsService(mapper);
 
         service.applyExplicitCommand(USER_ID, VoiceGuidanceCommand.FASTER);

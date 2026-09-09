@@ -112,7 +112,11 @@ class UserVoiceSettingsMapperIntegrationTest {
     void partialUpsertPreservesExistingFieldsNotIncludedInTheRequest() throws Exception {
         try (SqlSession session = sessionFactory.openSession()) {
             UserVoiceSettingsMapper mapper = session.getMapper(UserVoiceSettingsMapper.class);
-            mapper.upsert(settings("ko-KR-GookMinNeural", "1.05", "1.10"));
+            UserVoiceSettingsVo initial = settings("ko-KR-GookMinNeural", "1.05", "1.10");
+            initial.setPreferredVerbosity("COMPACT");
+            initial.setSupportStartNextSession(true);
+            initial.setRecentSupportSignalCount(2);
+            mapper.upsert(initial);
             session.commit();
 
             mapper.upsert(settings(null, "1.20", null));
@@ -122,6 +126,9 @@ class UserVoiceSettingsMapperIntegrationTest {
             assertEquals("ko-KR-GookMinNeural", found.getVoiceName());
             assertEquals(new BigDecimal("1.20"), found.getSpeechRateMultiplier());
             assertEquals(new BigDecimal("1.10"), found.getVolumeMultiplier());
+            assertEquals("COMPACT", found.getPreferredVerbosity());
+            assertTrue(found.getSupportStartNextSession());
+            assertEquals(2, found.getRecentSupportSignalCount());
         }
     }
 

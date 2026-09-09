@@ -123,7 +123,7 @@ class VoiceTurnServiceImplTest {
         mobileBranchVoiceResponseResolver = org.mockito.Mockito.mock(MobileBranchVoiceResponseResolver.class);
         when(mobileBranchVoiceResponseResolver.resolve(any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        when(voiceSsmlRenderer.render(eq(USER_ID), any())).thenAnswer(
+        when(voiceSsmlRenderer.render(eq(USER_ID), any(), any())).thenAnswer(
                 invocation -> "<saved-ssml>" + invocation.getArgument(1) + "</saved-ssml>");
         transactionManager = org.mockito.Mockito.mock(PlatformTransactionManager.class);
         when(transactionManager.getTransaction(any())).thenReturn(
