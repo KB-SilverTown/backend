@@ -110,6 +110,32 @@ class VoiceStreamLifecycleServiceImplTest {
     }
 
     @Test
+    void rejectsMismatchedAiTurnAndExpiredSession() {
+        VoiceSessionVo speaking = session(VoiceSessionStatus.SPEAKING, null, AI_TURN_ID, 3);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(speaking);
+
+        assertTurnConflict(() -> service.interruptAiTts(
+                USER_ID, SESSION_ID, "30000000-0000-0000-0000-000000000002"));
+        verify(dialogueTurnMapper, never()).markInterrupted(Mockito.anyString());
+
+        VoiceSessionVo expired = session(VoiceSessionStatus.EXPIRED, null, null, 3);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(expired);
+        assertTurnConflict(() -> service.claimInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID));
+    }
+
+    @Test
+    void rejectsMissingOrNonCanonicalTurnIdBeforeAcquiringTheSessionLock() {
+        BusinessException missing = assertThrows(
+                BusinessException.class, () -> service.claimInputTurn(USER_ID, SESSION_ID, null));
+        BusinessException malformed = assertThrows(
+                BusinessException.class, () -> service.claimInputTurn(USER_ID, SESSION_ID, "input-turn"));
+
+        assertEquals(ErrorCode.INVALID_REQUEST, missing.getErrorCode());
+        assertEquals(ErrorCode.INVALID_REQUEST, malformed.getErrorCode());
+        verify(voiceSessionMapper, never()).findOwnedByIdForUpdate(USER_ID, SESSION_ID);
+    }
+
+    @Test
     void cancelsCurrentInputStreamAndRejectsClosedSessions() {
         VoiceSessionVo active = session(VoiceSessionStatus.PROCESSING, INPUT_TURN_ID, null, 5);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(active);
