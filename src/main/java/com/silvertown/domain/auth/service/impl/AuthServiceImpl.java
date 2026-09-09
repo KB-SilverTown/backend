@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AuthServiceImpl implements AuthService {
 
   private static final String ACTIVE_STATUS = "ACTIVE";
@@ -172,10 +174,24 @@ public class AuthServiceImpl implements AuthService {
         userId,
         profile.getLoginId(),
         profile.getName(),
-        maskPhoneNumber(sensitiveDataCrypto.decrypt(profile.getPhoneEncrypted())),
+        maskedPhoneNumberOrNull(profile.getPhoneEncrypted(), userId),
         profile.getPostalCode(),
         profile.getAddress(),
         profile.getDetailAddress());
+  }
+
+  private String maskedPhoneNumberOrNull(byte[] encryptedPhone, UUID userId) {
+    try {
+      return maskPhoneNumber(sensitiveDataCrypto.decrypt(encryptedPhone));
+    } catch (BusinessException exception) {
+      if (exception.getErrorCode() != ErrorCode.ACCOUNT_CRYPTO_FAILURE
+          && exception.getErrorCode() != ErrorCode.ACCOUNT_CRYPTO_NOT_CONFIGURED) {
+        throw exception;
+      }
+      log.warn("Current user profile phone could not be decrypted. userId={}, errorCode={}",
+          userId, exception.getErrorCode().getCode());
+      return null;
+    }
   }
 
   private UserProfileVo toProfile(UUID userId, SignUpRequest request, OffsetDateTime now) {

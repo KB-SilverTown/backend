@@ -3,6 +3,7 @@ package com.silvertown.domain.reminder.controller;
 import com.silvertown.domain.reminder.dto.ReminderCreateRequest;
 import com.silvertown.domain.reminder.dto.ReminderListResponse;
 import com.silvertown.domain.reminder.dto.ReminderResponse;
+import com.silvertown.domain.reminder.dto.ReminderUpdateRequest;
 import com.silvertown.domain.reminder.service.ReminderService;
 import com.silvertown.global.security.AuthenticatedUserId;
 import io.swagger.annotations.Api;
@@ -15,11 +16,15 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import java.util.UUID;
 
 @Api(tags = "생활 금융 리마인더")
 @RestController
@@ -55,5 +60,22 @@ public class ReminderController {
             @RequestBody ReminderCreateRequest request, Authentication authentication) {
         return ResponseEntity.status(HttpStatus.CREATED).body(reminderService.create(
                 authenticatedUserId.from(authentication), request));
+    }
+
+    @ApiOperation("리마인더 수정")
+    @PutMapping(value = "/{reminderId}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ReminderResponse> update(
+            @PathVariable UUID reminderId,
+            @RequestBody ReminderUpdateRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(reminderService.update(
+                authenticatedUserId.from(authentication), reminderId, request));
+    }
+
+    @ApiOperation("리마인더 취소")
+    @DeleteMapping("/{reminderId}")
+    public ResponseEntity<Void> cancel(@PathVariable UUID reminderId, Authentication authentication) {
+        reminderService.cancel(authenticatedUserId.from(authentication), reminderId);
+        return ResponseEntity.noContent().build();
     }
 }

@@ -1,6 +1,7 @@
 package com.silvertown.domain.auth.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -115,5 +116,25 @@ class AuthServiceImplTest {
         BusinessException.class, () -> authService.getCurrentUserProfile(userId));
 
     assertEquals(ErrorCode.INVALID_AUTHENTICATED_USER, exception.getErrorCode());
+  }
+
+  @Test
+  void returnsProfileWithoutMaskedPhoneWhenStoredPhoneCannotBeDecrypted() {
+    UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    CurrentUserProfileVo profile = new CurrentUserProfileVo();
+    profile.setUserId(userId.toString());
+    profile.setLoginId("senior01");
+    profile.setName("홍길동");
+    profile.setPhoneEncrypted(new byte[] {1, 2, 3});
+    profile.setPostalCode("06234");
+    profile.setAddress("서울특별시 강남구 테헤란로 1");
+    when(authMapper.findCurrentUserProfileByUserId(userId.toString())).thenReturn(profile);
+    when(sensitiveDataCrypto.decrypt(profile.getPhoneEncrypted()))
+        .thenThrow(new BusinessException(ErrorCode.ACCOUNT_CRYPTO_FAILURE));
+
+    UserProfileResponse response = authService.getCurrentUserProfile(userId);
+
+    assertNull(response.getPhoneMasked());
+    assertEquals("홍길동", response.getName());
   }
 }

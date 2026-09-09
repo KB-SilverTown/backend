@@ -3,6 +3,7 @@ package com.silvertown.domain.reminder.service.impl;
 import com.silvertown.domain.reminder.dto.ReminderCreateRequest;
 import com.silvertown.domain.reminder.dto.ReminderListResponse;
 import com.silvertown.domain.reminder.dto.ReminderResponse;
+import com.silvertown.domain.reminder.dto.ReminderUpdateRequest;
 import com.silvertown.domain.reminder.enums.ReminderStatus;
 import com.silvertown.domain.reminder.mapper.ReminderMapper;
 import com.silvertown.domain.reminder.service.ReminderService;
@@ -77,6 +78,89 @@ public class ReminderServiceImpl implements ReminderService {
             throw new BusinessException(ErrorCode.REMINDER_DUPLICATE);
         }
         return toResponse(reminder);
+    }
+
+    @Override
+    @Transactional
+    public ReminderResponse update(UUID userId, UUID reminderId, ReminderUpdateRequest request) {
+        ReminderVo reminder = requireOwnedScheduledReminder(userId, reminderId);
+        applySchedule(userId, reminder, request == null ? null : request.getTitle(),
+                request == null ? null : request.getBillId(),
+                request == null ? null : request.getScheduledAt());
+        try {
+            if (reminderMapper.updateScheduledForOwner(reminder) != 1) {
+                throw new BusinessException(ErrorCode.REMINDER_INVALID_STATE);
+            }
+        } catch (DuplicateKeyException exception) {
+            throw new BusinessException(ErrorCode.REMINDER_DUPLICATE);
+        }
+        return toResponse(reminder);
+    }
+
+    @Override
+    @Transactional
+    public void cancel(UUID userId, UUID reminderId) {
+        ReminderVo reminder = requireOwnedReminderForUpdate(userId, reminderId);
+        ReminderStatus status = ReminderStatus.valueOf(reminder.getStatus());
+        if (status == ReminderStatus.CANCELLED) {
+            return;
+        }
+        if (status != ReminderStatus.SCHEDULED) {
+            throw new BusinessException(ErrorCode.REMINDER_INVALID_STATE);
+        }
+        if (reminderMapper.cancelScheduledForOwner(userId.toString(), reminderId.toString()) == 1) {
+            return;
+        }
+
+        ReminderVo current = requireOwnedReminder(userId, reminderId);
+        if (ReminderStatus.valueOf(current.getStatus()) != ReminderStatus.CANCELLED) {
+            throw new BusinessException(ErrorCode.REMINDER_INVALID_STATE);
+        }
+    }
+
+    private ReminderVo requireOwnedScheduledReminder(UUID userId, UUID reminderId) {
+        ReminderVo reminder = requireOwnedReminder(userId, reminderId);
+        if (ReminderStatus.valueOf(reminder.getStatus()) != ReminderStatus.SCHEDULED) {
+            throw new BusinessException(ErrorCode.REMINDER_INVALID_STATE);
+        }
+        return reminder;
+    }
+
+    private ReminderVo requireOwnedReminder(UUID userId, UUID reminderId) {
+        ReminderVo reminder = reminderMapper.findOwnedById(userId.toString(), reminderId.toString());
+        if (reminder == null) {
+            throw new BusinessException(ErrorCode.REMINDER_NOT_FOUND);
+        }
+        return reminder;
+    }
+
+    private ReminderVo requireOwnedReminderForUpdate(UUID userId, UUID reminderId) {
+        ReminderVo reminder = reminderMapper.findOwnedByIdForUpdate(userId.toString(), reminderId.toString());
+        if (reminder == null) {
+            throw new BusinessException(ErrorCode.REMINDER_NOT_FOUND);
+        }
+        return reminder;
+    }
+
+    private void applySchedule(UUID userId, ReminderVo reminder, String requestedTitle, UUID requestedBillId,
+            OffsetDateTime requestedScheduledAt) {
+        if (requestedTitle == null || requestedTitle.isBlank()) {
+            throw new BusinessException(ErrorCode.REMINDER_SCHEDULE_INVALID);
+        }
+        String title = requestedTitle.trim();
+        if (title.length() > 200 || requestedScheduledAt == null
+                || !requestedScheduledAt.isAfter(OffsetDateTime.now(clock))) {
+            throw new BusinessException(ErrorCode.REMINDER_SCHEDULE_INVALID);
+        }
+        if (requestedBillId != null) {
+            String billId = requestedBillId.toString();
+            if (reminderMapper.existsOwnedBill(userId.toString(), billId) == 0) {
+                throw new BusinessException(ErrorCode.BILL_NOT_FOUND);
+            }
+            reminder.setBillId(billId);
+        }
+        reminder.setTitle(title);
+        reminder.setRemindAt(toLocalDateTime(requestedScheduledAt));
     }
 
     private ReminderStatus parseStatus(String status) {

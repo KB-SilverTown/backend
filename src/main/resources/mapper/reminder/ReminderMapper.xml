@@ -33,6 +33,21 @@
       AND user_id = #{userId, jdbcType=CHAR}
   </select>
 
+  <select id="findOwnedById" resultMap="reminderMap">
+    SELECT reminder_id, user_id, bill_id, title, remind_at, status
+    FROM reminders
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND reminder_id = #{reminderId, jdbcType=CHAR}
+  </select>
+
+  <select id="findOwnedByIdForUpdate" resultMap="reminderMap">
+    SELECT reminder_id, user_id, bill_id, title, remind_at, status
+    FROM reminders
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND reminder_id = #{reminderId, jdbcType=CHAR}
+    FOR UPDATE
+  </select>
+
   <insert id="insert" parameterType="com.silvertown.domain.reminder.vo.ReminderVo">
     INSERT INTO reminders (
       reminder_id, user_id, bill_id, title, remind_at, status
@@ -41,4 +56,22 @@
       #{title, jdbcType=VARCHAR}, #{remindAt}, #{status}
     )
   </insert>
+
+  <update id="updateScheduledForOwner" parameterType="com.silvertown.domain.reminder.vo.ReminderVo">
+    UPDATE reminders
+    SET title = #{title, jdbcType=VARCHAR},
+        bill_id = #{billId, jdbcType=CHAR},
+        remind_at = #{remindAt}
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND reminder_id = #{reminderId, jdbcType=CHAR}
+      AND status = 'SCHEDULED'
+  </update>
+
+  <update id="cancelScheduledForOwner">
+    UPDATE reminders
+    SET status = 'CANCELLED'
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND reminder_id = #{reminderId, jdbcType=CHAR}
+      AND status = 'SCHEDULED'
+  </update>
 </mapper>
