@@ -1,7 +1,9 @@
 package com.silvertown.domain.voice.adaptation;
 
 import com.silvertown.domain.voice.enums.DialogueStep;
+import com.silvertown.domain.voice.enums.GuidanceScope;
 import com.silvertown.domain.voice.enums.VoiceAdaptationSignal;
+import com.silvertown.domain.voice.enums.VoiceGuidanceMode;
 import java.math.BigDecimal;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -48,6 +50,17 @@ public class VoiceAdaptationSessionStateStore {
 
     public void clear(String sessionId) {
         states.remove(sessionId);
+    }
+
+    public void initialize(String sessionId, DialogueStep currentDecisionStep, VoiceGuidanceMode initialMode) {
+        if (initialMode == VoiceGuidanceMode.STANDARD) {
+            return;
+        }
+        states.putIfAbsent(sessionId, new SessionState(
+                new VoiceAdaptationState(initialMode, GuidanceScope.CURRENT_SESSION, 0,
+                        currentDecisionStep, 0),
+                currentDecisionStep,
+                0));
     }
 
     /** Returns the current short-lived state for the response renderer. */

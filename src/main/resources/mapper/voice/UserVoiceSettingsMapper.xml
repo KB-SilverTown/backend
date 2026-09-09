@@ -9,6 +9,9 @@
         <result property="voiceName" column="voice_name"/>
         <result property="speechRateMultiplier" column="speech_rate_multiplier"/>
         <result property="volumeMultiplier" column="volume_multiplier"/>
+        <result property="preferredVerbosity" column="preferred_verbosity"/>
+        <result property="supportStartNextSession" column="support_start_next_session"/>
+        <result property="recentSupportSignalCount" column="recent_support_signal_count"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
@@ -19,6 +22,9 @@
             voice_name,
             speech_rate_multiplier,
             volume_multiplier,
+            preferred_verbosity,
+            support_start_next_session,
+            recent_support_signal_count,
             created_at,
             updated_at
         FROM user_voice_settings
@@ -30,12 +36,18 @@
             user_id,
             voice_name,
             speech_rate_multiplier,
-            volume_multiplier
+            volume_multiplier,
+            preferred_verbosity,
+            support_start_next_session,
+            recent_support_signal_count
         ) VALUES (
             #{userId, jdbcType=CHAR},
             COALESCE(#{voiceName, jdbcType=VARCHAR}, 'ko-KR-JiMinNeural'),
             COALESCE(#{speechRateMultiplier, jdbcType=DECIMAL}, 1.05),
-            COALESCE(#{volumeMultiplier, jdbcType=DECIMAL}, 1.00)
+            COALESCE(#{volumeMultiplier, jdbcType=DECIMAL}, 1.00),
+            COALESCE(#{preferredVerbosity, jdbcType=VARCHAR}, 'STANDARD'),
+            COALESCE(#{supportStartNextSession, jdbcType=BOOLEAN}, FALSE),
+            COALESCE(#{recentSupportSignalCount, jdbcType=INTEGER}, 0)
         )
         ON DUPLICATE KEY UPDATE
             updated_at = CASE
@@ -44,6 +56,12 @@
                         AND speech_rate_multiplier &lt;&gt; #{speechRateMultiplier, jdbcType=DECIMAL})
                     OR (#{volumeMultiplier, jdbcType=DECIMAL} IS NOT NULL
                         AND volume_multiplier &lt;&gt; #{volumeMultiplier, jdbcType=DECIMAL})
+                    OR (#{preferredVerbosity, jdbcType=VARCHAR} IS NOT NULL
+                        AND preferred_verbosity &lt;&gt; #{preferredVerbosity, jdbcType=VARCHAR})
+                    OR (#{supportStartNextSession, jdbcType=BOOLEAN} IS NOT NULL
+                        AND support_start_next_session &lt;&gt; #{supportStartNextSession, jdbcType=BOOLEAN})
+                    OR (#{recentSupportSignalCount, jdbcType=INTEGER} IS NOT NULL
+                        AND recent_support_signal_count &lt;&gt; #{recentSupportSignalCount, jdbcType=INTEGER})
                 THEN CURRENT_TIMESTAMP
                 ELSE updated_at
             END,
@@ -58,6 +76,18 @@
             volume_multiplier = CASE
                 WHEN #{volumeMultiplier, jdbcType=DECIMAL} IS NULL THEN volume_multiplier
                 ELSE #{volumeMultiplier, jdbcType=DECIMAL}
+            END,
+            preferred_verbosity = CASE
+                WHEN #{preferredVerbosity, jdbcType=VARCHAR} IS NULL THEN preferred_verbosity
+                ELSE #{preferredVerbosity, jdbcType=VARCHAR}
+            END,
+            support_start_next_session = CASE
+                WHEN #{supportStartNextSession, jdbcType=BOOLEAN} IS NULL THEN support_start_next_session
+                ELSE #{supportStartNextSession, jdbcType=BOOLEAN}
+            END,
+            recent_support_signal_count = CASE
+                WHEN #{recentSupportSignalCount, jdbcType=INTEGER} IS NULL THEN recent_support_signal_count
+                ELSE #{recentSupportSignalCount, jdbcType=INTEGER}
             END
     </insert>
 </mapper>

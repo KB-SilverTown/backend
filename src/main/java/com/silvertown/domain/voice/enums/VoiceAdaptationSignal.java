@@ -3,6 +3,7 @@ package com.silvertown.domain.voice.enums;
 /** Signals already identified by the voice flow that can change guidance rendering. */
 public enum VoiceAdaptationSignal {
     SLOWER_REQUEST,
+    LOUDER_REQUEST,
     FINANCIAL_RECONFIRMATION,
     LOW_STT_CONFIDENCE,
     REPLAY,

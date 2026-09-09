@@ -1,6 +1,7 @@
 package com.silvertown.domain.voice.mapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -112,7 +113,11 @@ class UserVoiceSettingsMapperIntegrationTest {
     void partialUpsertPreservesExistingFieldsNotIncludedInTheRequest() throws Exception {
         try (SqlSession session = sessionFactory.openSession()) {
             UserVoiceSettingsMapper mapper = session.getMapper(UserVoiceSettingsMapper.class);
-            mapper.upsert(settings("ko-KR-GookMinNeural", "1.05", "1.10"));
+            UserVoiceSettingsVo initial = settings("ko-KR-GookMinNeural", "1.05", "1.10");
+            initial.setPreferredVerbosity("COMPACT");
+            initial.setSupportStartNextSession(true);
+            initial.setRecentSupportSignalCount(2);
+            mapper.upsert(initial);
             session.commit();
 
             mapper.upsert(settings(null, "1.20", null));
@@ -122,6 +127,9 @@ class UserVoiceSettingsMapperIntegrationTest {
             assertEquals("ko-KR-GookMinNeural", found.getVoiceName());
             assertEquals(new BigDecimal("1.20"), found.getSpeechRateMultiplier());
             assertEquals(new BigDecimal("1.10"), found.getVolumeMultiplier());
+            assertEquals("COMPACT", found.getPreferredVerbosity());
+            assertTrue(found.getSupportStartNextSession());
+            assertEquals(2, found.getRecentSupportSignalCount());
         }
     }
 
@@ -136,6 +144,9 @@ class UserVoiceSettingsMapperIntegrationTest {
             assertEquals("ko-KR-JiMinNeural", found.getVoiceName());
             assertEquals(new BigDecimal("1.20"), found.getSpeechRateMultiplier());
             assertEquals(new BigDecimal("1.00"), found.getVolumeMultiplier());
+            assertEquals("STANDARD", found.getPreferredVerbosity());
+            assertFalse(found.getSupportStartNextSession());
+            assertEquals(0, found.getRecentSupportSignalCount());
         }
     }
 
@@ -153,6 +164,9 @@ class UserVoiceSettingsMapperIntegrationTest {
                     + "user_id CHAR(36) PRIMARY KEY, voice_name VARCHAR(100) NOT NULL, "
                     + "speech_rate_multiplier DECIMAL(3,2) NOT NULL DEFAULT 1.05, "
                     + "volume_multiplier DECIMAL(3,2) NOT NULL DEFAULT 1.00, "
+                    + "preferred_verbosity VARCHAR(16) NOT NULL DEFAULT 'STANDARD', "
+                    + "support_start_next_session BOOLEAN NOT NULL DEFAULT FALSE, "
+                    + "recent_support_signal_count INT NOT NULL DEFAULT 0, "
                     + "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
                     + "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
         }

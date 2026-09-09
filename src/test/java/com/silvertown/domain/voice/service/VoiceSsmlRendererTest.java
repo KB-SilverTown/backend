@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import com.silvertown.domain.voice.mapper.UserVoiceSettingsMapper;
+import com.silvertown.domain.voice.enums.VoiceGuidanceMode;
 import com.silvertown.domain.voice.vo.UserVoiceSettingsVo;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,6 +60,23 @@ class VoiceSsmlRendererTest {
         String ssml = renderer.render(USER_ID, "& < > \" '");
 
         assertTrue(ssml.contains("&amp; &lt; &gt; &quot; &apos;"));
+    }
+
+    @Test
+    void appliesGuidanceRateDeltaWithinTheSafeRange() {
+        when(userVoiceSettingsMapper.findByUserId(USER_ID)).thenReturn(settings(
+                "ko-KR-JiMinNeural", "1.20", "1.00"));
+
+        String compact = renderer.render(USER_ID, "짧은 안내", VoiceGuidanceMode.COMPACT);
+        String support = renderer.render(USER_ID, "자세한 안내", VoiceGuidanceMode.SUPPORT);
+
+        assertTrue(compact.contains("rate=\"1.20\""));
+        assertTrue(support.contains("rate=\"1.15\""));
+    }
+
+    @Test
+    void returnsNoSsmlForSilentUiAction() {
+        assertEquals(null, renderer.render(USER_ID, null, VoiceGuidanceMode.SUPPORT));
     }
 
     @Test

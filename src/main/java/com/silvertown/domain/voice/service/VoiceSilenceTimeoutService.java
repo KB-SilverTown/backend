@@ -42,6 +42,7 @@ public class VoiceSilenceTimeoutService {
     private final VoiceSsmlRenderer voiceSsmlRenderer;
     private final VoiceTransferOrchestrator voiceTransferOrchestrator;
     private final VoiceAdaptationSessionStateStore voiceAdaptationSessionStateStore;
+    private final VoiceGuidanceSettingsService voiceGuidanceSettingsService;
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final PlatformTransactionManager transactionManager;
@@ -58,7 +59,7 @@ public class VoiceSilenceTimeoutService {
             PlatformTransactionManager transactionManager) {
         this(voiceSessionMapper, dialogueTurnMapper, voiceProgressPromptFactory, voiceSsmlRenderer,
                 voiceTransferOrchestrator, new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy()),
-                objectMapper, clock, transactionManager);
+                new VoiceGuidanceSettingsService(null), objectMapper, clock, transactionManager);
     }
 
     @Scheduled(fixedDelayString = "${voice.session.silence-check-millis:1000}")
@@ -97,6 +98,8 @@ public class VoiceSilenceTimeoutService {
             saveAiTurn(userId, sessionId, voiceProgressPromptFactory.closePrompt());
             voiceSessionMapper.closeOwned(
                     userId, sessionId, DialogueStep.CANCELLED.name(), LocalDateTime.now(clock));
+            voiceGuidanceSettingsService.completeSession(
+                    userId, voiceAdaptationSessionStateStore.stateOf(sessionId));
             voiceAdaptationSessionStateStore.clear(sessionId);
             return;
         }
@@ -148,7 +151,11 @@ public class VoiceSilenceTimeoutService {
         turn.setStep(analysis.getNextStep().name());
         turn.setIntent(analysis.getIntent().name());
         turn.setTtsText(analysis.getTtsText());
-        turn.setTtsSsml(voiceSsmlRenderer.render(userId, analysis.getTtsText()));
+        var state = voiceAdaptationSessionStateStore.stateOf(sessionId);
+        var mode = state == null ? com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD : state.mode();
+        turn.setTtsSsml(mode == com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD
+                ? voiceSsmlRenderer.render(userId, analysis.getTtsText())
+                : voiceSsmlRenderer.render(userId, analysis.getTtsText(), mode));
         turn.setDisplayCard(writeJson(analysis.getDisplayCard()));
         turn.setExtractedSlots(writeStoredResponse(analysis));
         turn.setSilenceMs(0);

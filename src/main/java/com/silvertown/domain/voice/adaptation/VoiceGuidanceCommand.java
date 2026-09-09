@@ -7,7 +7,7 @@ public enum VoiceGuidanceCommand {
     SLOWER(VoiceAdaptationSignal.SLOWER_REQUEST),
     FASTER(VoiceAdaptationSignal.FASTER_REQUEST),
     DEFAULT_SPEED(VoiceAdaptationSignal.DEFAULT_SPEED_REQUEST),
-    LOUDER(null),
+    LOUDER(VoiceAdaptationSignal.LOUDER_REQUEST),
     QUIETER(null),
     DEFAULT_VOLUME(null);
 
