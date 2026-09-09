@@ -14,6 +14,9 @@
         <result property="flowType" column="flow_type"/>
         <result property="sttMode" column="stt_mode"/>
         <result property="entryPoint" column="entry_point"/>
+        <result property="activeInputTurnId" column="active_input_turn_id"/>
+        <result property="activeAiTurnId" column="active_ai_turn_id"/>
+        <result property="lifecycleGeneration" column="lifecycle_generation"/>
         <result property="startedAt" column="started_at"/>
         <result property="endedAt" column="ended_at"/>
         <result property="expiresAt" column="expires_at"/>
@@ -29,6 +32,9 @@
             flow_type,
             stt_mode,
             entry_point,
+            active_input_turn_id,
+            active_ai_turn_id,
+            lifecycle_generation,
             started_at,
             expires_at
         ) VALUES (
@@ -40,6 +46,9 @@
             #{flowType},
             #{sttMode},
             #{entryPoint},
+            #{activeInputTurnId, jdbcType=CHAR},
+            #{activeAiTurnId, jdbcType=CHAR},
+            #{lifecycleGeneration},
             #{startedAt},
             #{expiresAt}
         )
@@ -56,6 +65,9 @@
             flow_type,
             stt_mode,
             entry_point,
+            active_input_turn_id,
+            active_ai_turn_id,
+            lifecycle_generation,
             started_at,
             ended_at,
             expires_at
@@ -75,6 +87,9 @@
             flow_type,
             stt_mode,
             entry_point,
+            active_input_turn_id,
+            active_ai_turn_id,
+            lifecycle_generation,
             started_at,
             ended_at,
             expires_at
@@ -95,6 +110,9 @@
             flow_type,
             stt_mode,
             entry_point,
+            active_input_turn_id,
+            active_ai_turn_id,
+            lifecycle_generation,
             started_at,
             ended_at,
             expires_at
@@ -154,5 +172,63 @@
         WHERE user_id = #{userId, jdbcType=CHAR}
           AND session_id = #{sessionId, jdbcType=CHAR}
           AND status NOT IN ('CLOSED', 'EXPIRED')
+    </update>
+
+    <update id="claimStreamInputTurn">
+        UPDATE voice_sessions
+        SET active_input_turn_id = #{inputTurnId, jdbcType=CHAR}
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND status = 'LISTENING'
+          AND active_input_turn_id IS NULL
+          AND active_ai_turn_id IS NULL
+    </update>
+
+    <update id="beginStreamFinalProcessing">
+        UPDATE voice_sessions
+        SET status = 'PROCESSING'
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND status = 'LISTENING'
+          AND active_input_turn_id = #{inputTurnId, jdbcType=CHAR}
+          AND active_ai_turn_id IS NULL
+          AND lifecycle_generation = #{lifecycleGeneration}
+    </update>
+
+    <update id="completeStreamTurnWithAi">
+        UPDATE voice_sessions
+        SET status = 'SPEAKING',
+            active_input_turn_id = NULL,
+            active_ai_turn_id = #{aiTurnId, jdbcType=CHAR}
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND status = 'PROCESSING'
+          AND active_input_turn_id = #{inputTurnId, jdbcType=CHAR}
+          AND active_ai_turn_id IS NULL
+          AND lifecycle_generation = #{lifecycleGeneration}
+    </update>
+
+    <update id="interruptActiveAiTurn">
+        UPDATE voice_sessions
+        SET status = 'LISTENING',
+            active_ai_turn_id = NULL,
+            lifecycle_generation = lifecycle_generation + 1
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND status = 'SPEAKING'
+          AND active_input_turn_id IS NULL
+          AND active_ai_turn_id = #{aiTurnId, jdbcType=CHAR}
+    </update>
+
+    <update id="cancelActiveInputTurn">
+        UPDATE voice_sessions
+        SET status = 'LISTENING',
+            active_input_turn_id = NULL,
+            lifecycle_generation = lifecycle_generation + 1
+        WHERE user_id = #{userId, jdbcType=CHAR}
+          AND session_id = #{sessionId, jdbcType=CHAR}
+          AND status IN ('LISTENING', 'PROCESSING')
+          AND active_input_turn_id = #{inputTurnId, jdbcType=CHAR}
+          AND active_ai_turn_id IS NULL
     </update>
 </mapper>

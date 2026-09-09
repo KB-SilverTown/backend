@@ -228,6 +228,7 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
                 SttMode.valueOf(voiceSession.getSttMode()),
                 toOffsetDateTime(voiceSession.getExpiresAt()),
                 voiceSession.getEndedAt() == null ? null : toOffsetDateTime(voiceSession.getEndedAt()),
+                voiceSession.getActiveAiTurnId(),
                 latestReplayPayload(voiceSession.getSessionId()),
                 navigationFor(
                         VoiceSessionEntryPoint.valueOf(voiceSession.getEntryPoint()),
