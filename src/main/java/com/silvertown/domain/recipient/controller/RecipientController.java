@@ -8,13 +8,16 @@ import io.swagger.annotations.ApiOperation;
 import java.util.List;
 import javax.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-@Api(tags = "수취인") @RestController @RequestMapping("/api/recipients") @RequiredArgsConstructor
+@Api(tags = "수취인") @RestController
+@RequestMapping(value = "/api/recipients", produces = MediaType.APPLICATION_JSON_VALUE)
+@RequiredArgsConstructor
 public class RecipientController {
     private final RecipientService recipientService;
     private final AuthenticatedUserId authenticatedUserId;

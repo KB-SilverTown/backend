@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Profile({"local", "test"})
 @Api(tags = "안심 송금 데모")
 @RestController
-@RequestMapping("/api/transfers")
+@RequestMapping(value = "/api/transfers", produces = MediaType.APPLICATION_JSON_VALUE)
 @RequiredArgsConstructor
 public class DemoGuardianVerificationController {
     private final TransferService transferService;

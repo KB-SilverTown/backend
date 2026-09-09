@@ -21,6 +21,7 @@ import io.swagger.annotations.ApiOperation;
 import java.util.UUID;
 import javax.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -35,7 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @Api(tags = "송금")
 @RestController
-@RequestMapping("/api/transfers")
+@RequestMapping(value = "/api/transfers", produces = MediaType.APPLICATION_JSON_VALUE)
 @RequiredArgsConstructor
 public class TransferController {
     private final TransferService transferService;
