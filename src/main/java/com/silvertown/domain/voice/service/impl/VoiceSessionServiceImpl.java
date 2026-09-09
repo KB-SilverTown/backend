@@ -39,12 +39,13 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class VoiceSessionServiceImpl implements VoiceSessionService {
     private static final Duration SESSION_IDLE_TTL = Duration.ofMinutes(15);
     private static final String AI_SPEAKER = "AI";
