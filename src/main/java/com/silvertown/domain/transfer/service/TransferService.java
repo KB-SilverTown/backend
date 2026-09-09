@@ -31,9 +31,11 @@ public interface TransferService {
 
     void registerOrChangePin(UUID userId, TransferPinRequest request);
 
-    TransferAuthenticationResponse authenticate(UUID userId, UUID transferId, TransferPinRequest request);
+    TransferAuthenticationResponse authenticate(
+            UUID userId, UUID transferId, String confirmationToken, TransferPinRequest request);
 
-    TransferResultResponse execute(UUID userId, UUID transferId, String idempotencyKey);
+    TransferResultResponse execute(
+            UUID userId, UUID transferId, String confirmationToken, String idempotencyKey);
 
     GuardianVerificationStartResponse startGuardianVerification(UUID userId, UUID transferId,
             GuardianVerificationStartRequest request);

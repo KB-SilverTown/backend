@@ -24,6 +24,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 class TransferPrepareServiceTest {
@@ -75,5 +76,33 @@ class TransferPrepareServiceTest {
         assertEquals(TRANSFER_ID, response.getTransferId());
         assertEquals("DRAFT", response.getStatus());
         verify(transferMapper, never()).insert(Mockito.any());
+    }
+
+    @Test
+    void preservesTheAmountAlreadyExtractedWithTheRecipientInTheVoiceTurn() {
+        BankAccount account = new BankAccount();
+        account.setBalance(500_000L);
+        Recipient recipient = new Recipient();
+        recipient.setRecipientId(RECIPIENT_ID.toString());
+        recipient.setDisplayName("김철수");
+        recipient.setBankCode("004");
+        recipient.setAccountNumberEncrypted(new byte[] {1, 2, 3});
+        when(accountMapper.findOwnedActiveById(anyString(), anyString())).thenReturn(account);
+        when(recipientMapper.findOwnedById(anyString(), anyString())).thenReturn(recipient);
+        when(transferMapper.findOwnedVoiceSessionIdForUpdate(USER_ID.toString(), SESSION_ID.toString()))
+                .thenReturn(SESSION_ID.toString());
+        when(transferMapper.findOwnedDraftByVoiceSession(USER_ID.toString(), SESSION_ID.toString()))
+                .thenReturn(null);
+        when(crypto.decrypt(recipient.getAccountNumberEncrypted())).thenReturn("1234567890");
+        when(masker.mask("1234567890")).thenReturn("***-***-7890");
+
+        TransferPrepareResponse response = service.prepare(
+                USER_ID, TransferPrepareRequest.of(ACCOUNT_ID, RECIPIENT_ID, 300_000L, SESSION_ID));
+
+        ArgumentCaptor<Transfer> transferCaptor = ArgumentCaptor.forClass(Transfer.class);
+        verify(transferMapper).insert(transferCaptor.capture());
+        assertEquals(300_000L, response.getAmount());
+        assertEquals(300_000L, transferCaptor.getValue().getAmount());
+        assertEquals("김철수 님에게 300,000원을 보내시겠어요?", response.getConfirmationText());
     }
 }

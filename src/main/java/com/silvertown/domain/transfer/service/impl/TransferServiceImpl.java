@@ -40,9 +40,11 @@ import com.silvertown.global.security.crypto.AccountNumberCrypto;
 import com.silvertown.global.security.crypto.AccountNumberMasker;
 import com.silvertown.global.security.SensitiveDataHasher;
 import java.security.SecureRandom;
+import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -68,6 +70,7 @@ public class TransferServiceImpl implements TransferService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final java.time.Duration PIN_LOCK_DURATION = java.time.Duration.ofMinutes(30);
     private static final java.time.Duration AUTHENTICATION_DURATION = java.time.Duration.ofMinutes(5);
+    private static final java.time.Duration CONFIRMATION_TOKEN_DURATION = java.time.Duration.ofMinutes(5);
     private static final BCryptPasswordEncoder PIN_ENCODER = new BCryptPasswordEncoder();
     private static final Pattern ARABIC_AMOUNT_PATTERN = Pattern.compile(
             "(?<![0-9])([0-9][0-9,]*)(?:\\s*(억|만|천))?\\s*원");
@@ -335,7 +338,19 @@ public class TransferServiceImpl implements TransferService {
             throw new BusinessException(ErrorCode.TRANSFER_NOT_FOUND);
         }
         if ("CONFIRMED".equals(transfer.getStatus())) {
-            return confirmResponse(transfer, true);
+            if (!request.getApproved()) {
+                throw new BusinessException(ErrorCode.TRANSFER_INVALID_STATE);
+            }
+            ConfirmationToken confirmationToken = issueConfirmationToken();
+            if (transferMapper.refreshConfirmationToken(userId.toString(), transferId.toString(),
+                    confirmationToken.hash(), confirmationToken.expiresAt()) != 1) {
+                throw new BusinessException(ErrorCode.TRANSFER_INVALID_STATE);
+            }
+            transferMapper.expireAuthenticatedAuthentications(
+                    userId.toString(), transferId.toString());
+            transfer.setConfirmationTokenHash(confirmationToken.hash());
+            transfer.setConfirmationTokenExpiresAt(confirmationToken.expiresAt());
+            return confirmResponse(transfer, true, confirmationToken.value());
         }
         if ("HELD".equals(transfer.getStatus()) || "EXECUTED".equals(transfer.getStatus())
                 || "CANCELLED".equals(transfer.getStatus()) || "EXPIRED".equals(transfer.getStatus())) {
@@ -354,16 +369,20 @@ public class TransferServiceImpl implements TransferService {
             insertConfirmation(transfer, false);
             transfer.setStatus(CANCELLED);
             transfer.setCurrentStep(CANCELLED);
-            return confirmResponse(transfer, false);
+            return confirmResponse(transfer, false, null);
         }
-        if (transferMapper.confirmIfRiskChecked(userId.toString(), transferId.toString()) != 1) {
+        ConfirmationToken confirmationToken = issueConfirmationToken();
+        if (transferMapper.confirmIfRiskChecked(userId.toString(), transferId.toString(),
+                confirmationToken.hash(), confirmationToken.expiresAt()) != 1) {
             throw new BusinessException(ErrorCode.TRANSFER_INVALID_STATE);
         }
         insertConfirmation(transfer, true);
         transfer.setStatus("CONFIRMED");
         transfer.setCurrentStep("AUTHENTICATE");
         transfer.setApprovedAt(OffsetDateTime.now(clock));
-        return confirmResponse(transfer, true);
+        transfer.setConfirmationTokenHash(confirmationToken.hash());
+        transfer.setConfirmationTokenExpiresAt(confirmationToken.expiresAt());
+        return confirmResponse(transfer, true, confirmationToken.value());
     }
 
     @Override
@@ -485,10 +504,12 @@ public class TransferServiceImpl implements TransferService {
 
     @Override
     @Transactional
-    public TransferAuthenticationResponse authenticate(UUID userId, UUID transferId, TransferPinRequest request) {
+    public TransferAuthenticationResponse authenticate(
+            UUID userId, UUID transferId, String confirmationToken, TransferPinRequest request) {
         Transfer transfer = transferMapper.findOwnedByIdForUpdate(userId.toString(), transferId.toString());
         if (transfer == null) throw new BusinessException(ErrorCode.TRANSFER_NOT_FOUND);
         if (!"CONFIRMED".equals(transfer.getStatus())) throw new BusinessException(ErrorCode.TRANSFER_INVALID_STATE);
+        validateConfirmationToken(transfer, confirmationToken);
         UserTransferPin pin = transferMapper.findPinForUpdate(userId.toString());
         if (pin == null) throw new BusinessException(ErrorCode.TRANSFER_PIN_NOT_REGISTERED);
         OffsetDateTime now = OffsetDateTime.now(clock);
@@ -517,7 +538,8 @@ if (pin.getLockedUntil() != null) {
 
     @Override
     @Transactional
-    public TransferResultResponse execute(UUID userId, UUID transferId, String idempotencyKey) {
+    public TransferResultResponse execute(
+            UUID userId, UUID transferId, String confirmationToken, String idempotencyKey) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_REQUIRED);
         TransferTransaction existing = transferMapper.findTransactionByIdempotencyKey(userId.toString(), idempotencyKey);
         if (existing != null) {
@@ -534,6 +556,7 @@ if (pin.getLockedUntil() != null) {
             return result(existing);
         }
         if (!"CONFIRMED".equals(transfer.getStatus())) throw new BusinessException(ErrorCode.TRANSFER_INVALID_STATE);
+        validateConfirmationToken(transfer, confirmationToken);
         TransferAuthentication authentication = transferMapper.findLatestAuthenticationForUpdate(userId.toString(), transferId.toString());
         if (authentication == null || !"AUTHENTICATED".equals(authentication.getStatus())) throw new BusinessException(ErrorCode.TRANSFER_AUTHENTICATION_REQUIRED);
         if (!authentication.getExpiresAt().isAfter(OffsetDateTime.now(clock))) throw new BusinessException(ErrorCode.TRANSFER_AUTHENTICATION_EXPIRED);
@@ -581,11 +604,40 @@ if (pin.getLockedUntil() != null) {
         transferMapper.insertConfirmation(confirmation);
     }
 
-    private TransferConfirmResponse confirmResponse(Transfer transfer, boolean confirmed) {
+    private TransferConfirmResponse confirmResponse(
+            Transfer transfer, boolean confirmed, String confirmationToken) {
         return new TransferConfirmResponse(
                 UUID.fromString(transfer.getTransferId()), transfer.getStatus(), transfer.getCurrentStep(),
-                confirmed, false, transfer.getApprovedAt());
+                confirmed, false, confirmationToken, transfer.getConfirmationTokenExpiresAt(),
+                transfer.getApprovedAt());
     }
+
+    private ConfirmationToken issueConfirmationToken() {
+        byte[] bytes = new byte[32];
+        SECURE_RANDOM.nextBytes(bytes);
+        String value = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        return new ConfirmationToken(
+                value, sensitiveDataHasher.hash(value),
+                OffsetDateTime.now(clock).plus(CONFIRMATION_TOKEN_DURATION));
+    }
+
+    private void validateConfirmationToken(Transfer transfer, String confirmationToken) {
+        if (confirmationToken == null || confirmationToken.isBlank()
+                || transfer.getConfirmationTokenHash() == null) {
+            throw new BusinessException(ErrorCode.TRANSFER_CONFIRMATION_REQUIRED);
+        }
+        OffsetDateTime expiresAt = transfer.getConfirmationTokenExpiresAt();
+        if (expiresAt == null || !expiresAt.isAfter(OffsetDateTime.now(clock))) {
+            throw new BusinessException(ErrorCode.TRANSFER_CONFIRMATION_EXPIRED);
+        }
+        if (!MessageDigest.isEqual(
+                transfer.getConfirmationTokenHash().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                sensitiveDataHasher.hash(confirmationToken).getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+            throw new BusinessException(ErrorCode.TRANSFER_CONFIRMATION_INVALID);
+        }
+    }
+
+    private record ConfirmationToken(String value, String hash, OffsetDateTime expiresAt) { }
 
     private TransferResponse toResponse(Transfer transfer) {
         TransferRecipientResponse recipient = new TransferRecipientResponse(

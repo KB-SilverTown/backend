@@ -34,7 +34,14 @@ public interface TransferMapper {
     Boolean findLatestAdditionalCheckRequired(@Param("transferId") String transferId);
 
     int confirmIfRiskChecked(
-            @Param("userId") String userId, @Param("transferId") String transferId);
+            @Param("userId") String userId, @Param("transferId") String transferId,
+            @Param("confirmationTokenHash") String confirmationTokenHash,
+            @Param("confirmationTokenExpiresAt") java.time.OffsetDateTime confirmationTokenExpiresAt);
+
+    int refreshConfirmationToken(
+            @Param("userId") String userId, @Param("transferId") String transferId,
+            @Param("confirmationTokenHash") String confirmationTokenHash,
+            @Param("confirmationTokenExpiresAt") java.time.OffsetDateTime confirmationTokenExpiresAt);
 
     int insertConfirmation(TransferConfirmation confirmation);
 

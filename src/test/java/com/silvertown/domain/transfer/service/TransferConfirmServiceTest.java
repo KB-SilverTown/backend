@@ -1,9 +1,11 @@
 package com.silvertown.domain.transfer.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,6 +22,7 @@ import com.silvertown.domain.transfer.mms.MockMmsSender;
 import com.silvertown.global.security.SensitiveDataHasher;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -28,10 +31,12 @@ import org.mockito.Mockito;
 class TransferConfirmServiceTest {
     private final TransferMapper transferMapper = Mockito.mock(TransferMapper.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final SensitiveDataHasher sensitiveDataHasher =
+            new SensitiveDataHasher("test-guardian-hmac-secret");
     private final TransferService service = new TransferServiceImpl(
             null, null, transferMapper, null, null, objectMapper,
             Clock.fixed(Instant.parse("2026-09-02T00:00:00Z"), ZoneOffset.UTC),
-            new SensitiveDataHasher("test-guardian-hmac-secret"), new MockMmsSender(false));
+            sensitiveDataHasher, new MockMmsSender(false));
 
     @Test
     void confirmsRiskCheckedTransferAndWritesApprovalHistory() throws Exception {
@@ -40,13 +45,21 @@ class TransferConfirmServiceTest {
         when(transferMapper.findOwnedByIdForUpdate(anyString(), anyString()))
                 .thenReturn(transfer("RECONFIRM"));
         when(transferMapper.findLatestAdditionalCheckRequired(transferId.toString())).thenReturn(false);
-        when(transferMapper.confirmIfRiskChecked(userId.toString(), transferId.toString())).thenReturn(1);
+        when(transferMapper.confirmIfRiskChecked(
+                eq(userId.toString()), eq(transferId.toString()), anyString(), any())).thenReturn(1);
 
         TransferConfirmResponse response = service.confirm(userId, transferId, request(true));
 
         assertEquals("CONFIRMED", response.getStatus());
         assertEquals("AUTHENTICATE", response.getCurrentStep());
         assertEquals(true, response.isConfirmed());
+        assertNotNull(response.getConfirmationToken());
+        assertEquals(OffsetDateTime.parse("2026-09-02T00:05:00Z"),
+                response.getConfirmationTokenExpiresAt());
+        verify(transferMapper).confirmIfRiskChecked(
+                eq(userId.toString()), eq(transferId.toString()),
+                eq(sensitiveDataHasher.hash(response.getConfirmationToken())),
+                eq(response.getConfirmationTokenExpiresAt()));
         verify(transferMapper).insertConfirmation(any());
     }
 
@@ -62,7 +75,8 @@ class TransferConfirmServiceTest {
                 () -> service.confirm(userId, transferId, request(true)));
 
         assertEquals(ErrorCode.RISK_CHECK_REQUIRED, exception.getErrorCode());
-        verify(transferMapper, never()).confirmIfRiskChecked(anyString(), anyString());
+        verify(transferMapper, never()).confirmIfRiskChecked(
+                anyString(), anyString(), anyString(), any());
     }
 
     @Test
@@ -72,12 +86,14 @@ class TransferConfirmServiceTest {
         when(transferMapper.findOwnedByIdForUpdate(anyString(), anyString()))
                 .thenReturn(transfer("RECONFIRM"));
         when(transferMapper.findLatestAdditionalCheckRequired(transferId.toString())).thenReturn(true);
-        when(transferMapper.confirmIfRiskChecked(userId.toString(), transferId.toString())).thenReturn(1);
+        when(transferMapper.confirmIfRiskChecked(
+                eq(userId.toString()), eq(transferId.toString()), anyString(), any())).thenReturn(1);
 
         TransferConfirmResponse response = service.confirm(userId, transferId, request(true));
 
         assertEquals("CONFIRMED", response.getStatus());
-        verify(transferMapper).confirmIfRiskChecked(userId.toString(), transferId.toString());
+        verify(transferMapper).confirmIfRiskChecked(
+                eq(userId.toString()), eq(transferId.toString()), anyString(), any());
     }
 
     @Test

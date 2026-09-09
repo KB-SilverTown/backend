@@ -18,6 +18,8 @@ public class Transfer {
     private Long recognizedAmount;
     private String amountCandidates;
     private boolean amountReconfirmRequired;
+    private String confirmationTokenHash;
+    private OffsetDateTime confirmationTokenExpiresAt;
     private OffsetDateTime preparedAt;
     private OffsetDateTime approvedAt;
     private OffsetDateTime executedAt;
