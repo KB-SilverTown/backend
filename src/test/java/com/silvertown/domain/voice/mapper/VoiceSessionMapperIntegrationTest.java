@@ -23,6 +23,7 @@ class VoiceSessionMapperIntegrationTest {
     private static final UUID OWNER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final UUID SESSION_ID = UUID.fromString("10000000-0000-0000-0000-000000000001");
+    private static final LocalDateTime STREAM_NOW = LocalDateTime.of(2026, 9, 2, 10, 0);
     private SqlSessionFactory sessionFactory;
 
     @BeforeEach
@@ -117,6 +118,25 @@ class VoiceSessionMapperIntegrationTest {
     }
 
     @Test
+    void doesNotClaimExpiredStreamInputTurn() {
+        try (SqlSession sqlSession = sessionFactory.openSession()) {
+            VoiceSessionMapper mapper = sqlSession.getMapper(VoiceSessionMapper.class);
+            VoiceSessionVo expiredSession = newSession();
+            expiredSession.setFlowType("TRANSFER");
+            expiredSession.setSttMode("BACKEND_STREAM");
+            expiredSession.setEntryPoint("TRANSFER");
+            expiredSession.setExpiresAt(STREAM_NOW.minusSeconds(1));
+            mapper.insert(expiredSession);
+
+            assertEquals(0, mapper.claimStreamInputTurn(
+                    OWNER_ID.toString(),
+                    SESSION_ID.toString(),
+                    "20000000-0000-0000-0000-000000000001",
+                    STREAM_NOW));
+        }
+    }
+
+    @Test
     void persistsStreamLifecycleStateTransitions() {
         String inputTurnId = "20000000-0000-0000-0000-000000000001";
         String aiTurnId = "30000000-0000-0000-0000-000000000001";
@@ -129,11 +149,11 @@ class VoiceSessionMapperIntegrationTest {
             mapper.insert(session);
 
             assertEquals(1, mapper.claimStreamInputTurn(
-                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId));
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, STREAM_NOW));
             assertEquals(1, mapper.beginStreamFinalProcessing(
-                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, 0));
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, 0, STREAM_NOW));
             assertEquals(1, mapper.completeStreamTurnWithAi(
-                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, 0, aiTurnId));
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, 0, aiTurnId, STREAM_NOW));
 
             VoiceSessionVo speaking = mapper.findOwnedById(OWNER_ID.toString(), SESSION_ID.toString());
             assertEquals("SPEAKING", speaking.getStatus());
@@ -142,16 +162,16 @@ class VoiceSessionMapperIntegrationTest {
             assertEquals(0, speaking.getLifecycleGeneration());
 
             assertEquals(1, mapper.interruptActiveAiTurn(
-                    OWNER_ID.toString(), SESSION_ID.toString(), aiTurnId));
+                    OWNER_ID.toString(), SESSION_ID.toString(), aiTurnId, STREAM_NOW));
             VoiceSessionVo listening = mapper.findOwnedById(OWNER_ID.toString(), SESSION_ID.toString());
             assertEquals("LISTENING", listening.getStatus());
             assertNull(listening.getActiveAiTurnId());
             assertEquals(1, listening.getLifecycleGeneration());
 
             assertEquals(1, mapper.claimStreamInputTurn(
-                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId));
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, STREAM_NOW));
             assertEquals(1, mapper.cancelActiveInputTurn(
-                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId));
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, STREAM_NOW));
             VoiceSessionVo cancelledInput = mapper.findOwnedById(
                     OWNER_ID.toString(), SESSION_ID.toString());
             assertEquals("LISTENING", cancelledInput.getStatus());

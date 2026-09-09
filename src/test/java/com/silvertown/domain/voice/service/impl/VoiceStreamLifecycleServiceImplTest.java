@@ -16,6 +16,10 @@ import com.silvertown.domain.voice.service.VoiceStreamLifecycleService;
 import com.silvertown.domain.voice.vo.VoiceSessionVo;
 import com.silvertown.global.common.exception.BusinessException;
 import com.silvertown.global.common.exception.ErrorCode;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -26,6 +30,9 @@ class VoiceStreamLifecycleServiceImplTest {
     private static final String SESSION_ID = "10000000-0000-0000-0000-000000000001";
     private static final String INPUT_TURN_ID = "20000000-0000-0000-0000-000000000001";
     private static final String AI_TURN_ID = "30000000-0000-0000-0000-000000000001";
+    private static final Clock CLOCK = Clock.fixed(
+            Instant.parse("2026-09-09T01:00:00Z"), ZoneId.of("Asia/Seoul"));
+    private static final LocalDateTime NOW = LocalDateTime.now(CLOCK);
 
     private VoiceSessionMapper voiceSessionMapper;
     private DialogueTurnMapper dialogueTurnMapper;
@@ -35,19 +42,19 @@ class VoiceStreamLifecycleServiceImplTest {
     void setUp() {
         voiceSessionMapper = Mockito.mock(VoiceSessionMapper.class);
         dialogueTurnMapper = Mockito.mock(DialogueTurnMapper.class);
-        service = new VoiceStreamLifecycleServiceImpl(voiceSessionMapper, dialogueTurnMapper);
+        service = new VoiceStreamLifecycleServiceImpl(voiceSessionMapper, dialogueTurnMapper, CLOCK);
     }
 
     @Test
     void claimsOnlyListeningBackendTransferSessionWithoutActiveTurns() {
         VoiceSessionVo session = session(VoiceSessionStatus.LISTENING, null, null, 4);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(session);
-        when(voiceSessionMapper.claimStreamInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID)).thenReturn(1);
+        when(voiceSessionMapper.claimStreamInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, NOW)).thenReturn(1);
 
         long generation = service.claimInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID);
 
         assertEquals(4, generation);
-        verify(voiceSessionMapper).claimStreamInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID);
+        verify(voiceSessionMapper).claimStreamInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, NOW);
     }
 
     @Test
@@ -57,19 +64,19 @@ class VoiceStreamLifecycleServiceImplTest {
 
         assertTurnConflict(() -> service.claimInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID));
 
-        verify(voiceSessionMapper, never()).claimStreamInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID);
+        verify(voiceSessionMapper, never()).claimStreamInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, NOW);
     }
 
     @Test
     void beginsFinalProcessingOnlyForMatchingInputAndGeneration() {
         VoiceSessionVo session = session(VoiceSessionStatus.LISTENING, INPUT_TURN_ID, null, 2);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(session);
-        when(voiceSessionMapper.beginStreamFinalProcessing(USER_ID, SESSION_ID, INPUT_TURN_ID, 2))
+        when(voiceSessionMapper.beginStreamFinalProcessing(USER_ID, SESSION_ID, INPUT_TURN_ID, 2, NOW))
                 .thenReturn(1);
 
         service.beginFinalProcessing(USER_ID, SESSION_ID, INPUT_TURN_ID, 2);
 
-        verify(voiceSessionMapper).beginStreamFinalProcessing(USER_ID, SESSION_ID, INPUT_TURN_ID, 2);
+        verify(voiceSessionMapper).beginStreamFinalProcessing(USER_ID, SESSION_ID, INPUT_TURN_ID, 2, NOW);
     }
 
     @Test
@@ -80,20 +87,20 @@ class VoiceStreamLifecycleServiceImplTest {
         assertTurnConflict(() -> service.beginFinalProcessing(USER_ID, SESSION_ID, INPUT_TURN_ID, 1));
 
         verify(voiceSessionMapper, never()).beginStreamFinalProcessing(
-                eq(USER_ID), eq(SESSION_ID), eq(INPUT_TURN_ID), Mockito.anyLong());
+                eq(USER_ID), eq(SESSION_ID), eq(INPUT_TURN_ID), Mockito.anyLong(), eq(NOW));
     }
 
     @Test
     void completesProcessingByReplacingActiveInputWithAiTurn() {
         VoiceSessionVo session = session(VoiceSessionStatus.PROCESSING, INPUT_TURN_ID, null, 3);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(session);
-        when(voiceSessionMapper.completeStreamTurnWithAi(USER_ID, SESSION_ID, INPUT_TURN_ID, 3, AI_TURN_ID))
+        when(voiceSessionMapper.completeStreamTurnWithAi(USER_ID, SESSION_ID, INPUT_TURN_ID, 3, AI_TURN_ID, NOW))
                 .thenReturn(1);
 
         service.completeAiTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, 3, AI_TURN_ID);
 
         verify(voiceSessionMapper).completeStreamTurnWithAi(
-                USER_ID, SESSION_ID, INPUT_TURN_ID, 3, AI_TURN_ID);
+                USER_ID, SESSION_ID, INPUT_TURN_ID, 3, AI_TURN_ID, NOW);
     }
 
     @Test
@@ -101,12 +108,12 @@ class VoiceStreamLifecycleServiceImplTest {
         VoiceSessionVo session = session(VoiceSessionStatus.SPEAKING, null, AI_TURN_ID, 3);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(session);
         when(dialogueTurnMapper.markInterrupted(AI_TURN_ID)).thenReturn(1);
-        when(voiceSessionMapper.interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID)).thenReturn(1);
+        when(voiceSessionMapper.interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, NOW)).thenReturn(1);
 
         service.interruptAiTts(USER_ID, SESSION_ID, AI_TURN_ID);
 
         verify(dialogueTurnMapper).markInterrupted(AI_TURN_ID);
-        verify(voiceSessionMapper).interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID);
+        verify(voiceSessionMapper).interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, NOW);
     }
 
     @Test
@@ -136,17 +143,29 @@ class VoiceStreamLifecycleServiceImplTest {
     }
 
     @Test
+    void rejectsStaleInputTurnAfterTheLifecycleGenerationChanges() {
+        String nextInputTurnId = "20000000-0000-0000-0000-000000000002";
+        VoiceSessionVo newerStream = session(VoiceSessionStatus.LISTENING, nextInputTurnId, null, 6);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(newerStream);
+
+        assertTurnConflict(() -> service.cancelInputStream(USER_ID, SESSION_ID, INPUT_TURN_ID));
+
+        verify(voiceSessionMapper, never()).cancelActiveInputTurn(
+                eq(USER_ID), eq(SESSION_ID), eq(INPUT_TURN_ID), eq(NOW));
+    }
+
+    @Test
     void cancelsCurrentInputStreamAndRejectsClosedSessions() {
         VoiceSessionVo active = session(VoiceSessionStatus.PROCESSING, INPUT_TURN_ID, null, 5);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(active);
-        when(voiceSessionMapper.cancelActiveInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID)).thenReturn(1);
+        when(voiceSessionMapper.cancelActiveInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, NOW)).thenReturn(1);
 
         service.cancelInputStream(USER_ID, SESSION_ID, INPUT_TURN_ID);
 
         VoiceSessionVo closed = session(VoiceSessionStatus.CLOSED, null, null, 5);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(closed);
         assertTurnConflict(() -> service.claimInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID));
-        verify(voiceSessionMapper).cancelActiveInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID);
+        verify(voiceSessionMapper).cancelActiveInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, NOW);
     }
 
     @Test
@@ -166,6 +185,7 @@ class VoiceStreamLifecycleServiceImplTest {
         session.setActiveInputTurnId(activeInputTurnId);
         session.setActiveAiTurnId(activeAiTurnId);
         session.setLifecycleGeneration(generation);
+        session.setExpiresAt(NOW.plusMinutes(15));
         return session;
     }
 
