@@ -346,6 +346,8 @@ public class TransferServiceImpl implements TransferService {
                     confirmationToken.hash(), confirmationToken.expiresAt()) != 1) {
                 throw new BusinessException(ErrorCode.TRANSFER_INVALID_STATE);
             }
+            transferMapper.expireAuthenticatedAuthentications(
+                    userId.toString(), transferId.toString());
             transfer.setConfirmationTokenHash(confirmationToken.hash());
             transfer.setConfirmationTokenExpiresAt(confirmationToken.expiresAt());
             return confirmResponse(transfer, true, confirmationToken.value());
