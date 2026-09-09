@@ -77,24 +77,27 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
 
     @Override
     @Transactional
-    public void interruptAiTts(String userId, String sessionId, String interruptedAiTurnId) {
+    public void interruptAiTts(
+            String userId, String sessionId, String interruptedAiTurnId, long lifecycleGeneration) {
         requireTurnId(interruptedAiTurnId);
         LocalDateTime now = LocalDateTime.now(clock);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
         requireBackendTransferSession(session, now);
         requireStatus(session, VoiceSessionStatus.SPEAKING);
         if (!Objects.equals(interruptedAiTurnId, session.getActiveAiTurnId())
-                || session.getActiveInputTurnId() != null) {
+                || session.getActiveInputTurnId() != null
+                || session.getLifecycleGeneration() != lifecycleGeneration) {
             throw turnConflict();
         }
         requireUpdated(dialogueTurnMapper.markInterrupted(interruptedAiTurnId));
         requireUpdated(voiceSessionMapper.interruptActiveAiTurn(
-                userId, sessionId, interruptedAiTurnId, now));
+                userId, sessionId, interruptedAiTurnId, lifecycleGeneration, now));
     }
 
     @Override
     @Transactional
-    public void cancelInputStream(String userId, String sessionId, String inputTurnId) {
+    public void cancelInputStream(
+            String userId, String sessionId, String inputTurnId, long lifecycleGeneration) {
         requireTurnId(inputTurnId);
         LocalDateTime now = LocalDateTime.now(clock);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
@@ -103,11 +106,12 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
         if (status != VoiceSessionStatus.LISTENING && status != VoiceSessionStatus.PROCESSING) {
             throw turnConflict();
         }
-        requireActiveInput(session, inputTurnId, session.getLifecycleGeneration());
+        requireActiveInput(session, inputTurnId, lifecycleGeneration);
         if (session.getActiveAiTurnId() != null) {
             throw turnConflict();
         }
-        requireUpdated(voiceSessionMapper.cancelActiveInputTurn(userId, sessionId, inputTurnId, now));
+        requireUpdated(voiceSessionMapper.cancelActiveInputTurn(
+                userId, sessionId, inputTurnId, lifecycleGeneration, now));
     }
 
     private VoiceSessionVo findOwnedForUpdate(String userId, String sessionId) {

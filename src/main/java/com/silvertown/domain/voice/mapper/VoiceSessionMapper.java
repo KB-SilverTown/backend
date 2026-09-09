@@ -75,11 +75,13 @@ public interface VoiceSessionMapper {
             @Param("userId") String userId,
             @Param("sessionId") String sessionId,
             @Param("aiTurnId") String aiTurnId,
+            @Param("lifecycleGeneration") long lifecycleGeneration,
             @Param("now") LocalDateTime now);
 
     int cancelActiveInputTurn(
             @Param("userId") String userId,
             @Param("sessionId") String sessionId,
             @Param("inputTurnId") String inputTurnId,
+            @Param("lifecycleGeneration") long lifecycleGeneration,
             @Param("now") LocalDateTime now);
 }

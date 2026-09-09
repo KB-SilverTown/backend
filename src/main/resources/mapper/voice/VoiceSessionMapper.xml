@@ -221,6 +221,7 @@
           AND status = 'SPEAKING'
           AND active_input_turn_id IS NULL
           AND active_ai_turn_id = #{aiTurnId, jdbcType=CHAR}
+          AND lifecycle_generation = #{lifecycleGeneration}
           AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
     </update>
 
@@ -234,6 +235,7 @@
           AND status IN ('LISTENING', 'PROCESSING')
           AND active_input_turn_id = #{inputTurnId, jdbcType=CHAR}
           AND active_ai_turn_id IS NULL
+          AND lifecycle_generation = #{lifecycleGeneration}
           AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
     </update>
 </mapper>
