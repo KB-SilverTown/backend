@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.silvertown.domain.account.mapper.AccountMapper;
 import com.silvertown.domain.account.vo.BankAccount;
 import com.silvertown.domain.voice.dto.VoiceReplayPayloadResponse;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationSessionStateStore;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationPolicy;
 import com.silvertown.domain.voice.dto.VoiceSessionCreateRequest;
 import com.silvertown.domain.voice.dto.VoiceSessionDetailResponse;
 import com.silvertown.domain.voice.dto.VoiceSessionNavigationResponse;
@@ -53,8 +55,25 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
     private final DialogueTurnMapper dialogueTurnMapper;
     private final VoiceSessionPromptProvider voiceSessionPromptProvider;
     private final VoiceSsmlRenderer voiceSsmlRenderer;
+    private final VoiceAdaptationSessionStateStore voiceAdaptationSessionStateStore;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+
+    /** Compatibility constructor retained for focused unit tests that do not load Spring. */
+    public VoiceSessionServiceImpl(
+            VoiceSessionMapper voiceSessionMapper,
+            AccountMapper accountMapper,
+            VoiceTransferOrchestrator voiceTransferOrchestrator,
+            VoiceInteractionCardMapper voiceInteractionCardMapper,
+            DialogueTurnMapper dialogueTurnMapper,
+            VoiceSessionPromptProvider voiceSessionPromptProvider,
+            VoiceSsmlRenderer voiceSsmlRenderer,
+            ObjectMapper objectMapper,
+            Clock clock) {
+        this(voiceSessionMapper, accountMapper, voiceTransferOrchestrator, voiceInteractionCardMapper,
+                dialogueTurnMapper, voiceSessionPromptProvider, voiceSsmlRenderer,
+                new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy()), objectMapper, clock);
+    }
 
     @Override
     @Transactional
@@ -111,8 +130,11 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
                     voiceSession.getCurrentStep(),
                     LocalDateTime.now(clock));
             voiceInteractionCardMapper.deactivateActiveBySessionId(sessionId);
+            voiceAdaptationSessionStateStore.clear(sessionId);
             voiceSession = findOwnedAndExpireIfNeeded(userId, sessionId);
         }
+
+        voiceAdaptationSessionStateStore.clear(sessionId);
 
         return toDetailResponse(voiceSession);
     }
@@ -154,6 +176,7 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
                     userId, sessionId, VoiceSessionStatus.EXPIRED.name(),
                     voiceSession.getCurrentStep());
             voiceInteractionCardMapper.deactivateActiveBySessionId(sessionId);
+            voiceAdaptationSessionStateStore.clear(sessionId);
             voiceSession = voiceSessionMapper.findOwnedById(userId, sessionId);
         }
         return voiceSession;

@@ -732,6 +732,54 @@ class VoiceTurnServiceImplTest {
     }
 
     @Test
+    void guidanceCommandDuringFinalApprovalDoesNotConfirmTransferOrCallLlm() throws Exception {
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(finalApprovalSession(), processingFinalApprovalSession());
+        when(voiceSessionMapper.claimForTurn(eq(USER_ID), eq(SESSION_ID), any())).thenReturn(1);
+        when(voiceInteractionCardMapper.findBySessionId(SESSION_ID)).thenReturn(transferReadbackCard());
+        when(transferService.get(
+                UUID.fromString(USER_ID), UUID.fromString("70000000-0000-0000-0000-000000000001")))
+                .thenReturn(canonicalReadback());
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(6, 7);
+        when(voiceSessionMapper.completeTurn(USER_ID, SESSION_ID, DialogueStep.WAITING_FINAL_APPROVAL.name()))
+                .thenReturn(1);
+
+        VoiceTurnResponse response = service.processAzureTransferFinal(
+                USER_ID, SESSION_ID, TURN_ID,
+                new AzureSpeechDetailedResult("천천히 말해줘", new BigDecimal("0.95"), List.of()));
+
+        assertEquals(DialogueStep.WAITING_FINAL_APPROVAL, response.getState());
+        assertEquals("ASK_FINAL_APPROVAL", response.getNextAction());
+        verify(transferService, never()).confirm(any(), any(), any());
+        verify(transferService, never()).authenticate(any(), any(), any(), any());
+        verify(transferService, never()).execute(any(), any(), any(), any());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+    }
+
+    @Test
+    void guidanceCommandDuringRiskCheckDoesNotProcessTheCommandAsARiskAnswer() throws Exception {
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(riskCheckSession(), processingRiskCheckSession());
+        when(voiceSessionMapper.claimForTurn(eq(USER_ID), eq(SESSION_ID), any())).thenReturn(1);
+        when(voiceInteractionCardMapper.findBySessionId(SESSION_ID)).thenReturn(transferRiskCheckCard());
+        when(transferService.get(
+                UUID.fromString(USER_ID), UUID.fromString("70000000-0000-0000-0000-000000000001")))
+                .thenReturn(canonicalReadback());
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(6, 7);
+        when(voiceSessionMapper.completeTurn(USER_ID, SESSION_ID, DialogueStep.RISK_CHECK.name()))
+                .thenReturn(1);
+
+        VoiceTurnResponse response = service.processAzureTransferFinal(
+                USER_ID, SESSION_ID, TURN_ID,
+                new AzureSpeechDetailedResult("천천히 말해줘", new BigDecimal("0.95"), List.of()));
+
+        assertEquals(DialogueStep.RISK_CHECK, response.getState());
+        assertEquals("NONE", response.getNextAction());
+        verify(riskScoreService, never()).checkContext(any(), any(), any());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+    }
+
+    @Test
     void rejectsAmountAcceptanceWhenThePersistedFocusedCandidateDoesNotMatch() throws Exception {
         VoiceSessionVo listening = activeSession();
         listening.setCurrentStep(DialogueStep.RECONFIRMING.name());
@@ -791,6 +839,21 @@ class VoiceTurnServiceImplTest {
     }
 
     @Test
+    void blocksGuidanceCommandsOnTheRawBackendStreamTransferPath() throws Exception {
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(backendTransferSession());
+        when(voiceSessionMapper.claimForTurn(eq(USER_ID), eq(SESSION_ID), any())).thenReturn(1);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class, () -> service.process(USER_ID, SESSION_ID, request("천천히 말해줘")));
+
+        assertEquals("INVALID_REQUEST", exception.getErrorCode().getCode());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+        verify(voiceSessionMapper).restoreTurnClaim(
+                USER_ID, SESSION_ID, VoiceSessionStatus.LISTENING.name());
+    }
+
+    @Test
     void resumesTheStoredProgressForCasualAffirmationWithoutCallingTheLlm() throws Exception {
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
                 .thenReturn(continuationSession(), processingContinuationSession());
@@ -807,6 +870,23 @@ class VoiceTurnServiceImplTest {
         assertEquals("좋아요. 김철수님께 돈 보내기를 진행하고 있어요. 보낼 금액을 다시 말씀해 주세요.",
                 response.getTtsText());
         verify(voiceTurnAnalysisPort, never()).analyze(any());
+    }
+
+    @Test
+    void guidanceCommandDuringContinuationKeepsTheContinuationQuestion() throws Exception {
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(continuationSession(), processingContinuationSession());
+        when(voiceSessionMapper.claimForTurn(eq(USER_ID), eq(SESSION_ID), any())).thenReturn(1);
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(6, 7);
+        when(voiceSessionMapper.completeTurn(USER_ID, SESSION_ID, DialogueStep.AWAITING_CONTINUATION.name()))
+                .thenReturn(1);
+
+        VoiceTurnResponse response = service.process(USER_ID, SESSION_ID, request("천천히 말해줘"));
+
+        assertEquals(DialogueStep.AWAITING_CONTINUATION, response.getState());
+        assertEquals("ASK_CONTINUATION", response.getNextAction());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+        verify(dialogueTurnMapper, never()).findLatestBusinessAiTurn(SESSION_ID);
     }
 
     @Test
@@ -1105,6 +1185,19 @@ class VoiceTurnServiceImplTest {
         return voiceSession;
     }
 
+    private VoiceSessionVo riskCheckSession() {
+        VoiceSessionVo voiceSession = backendTransferSession();
+        voiceSession.setCurrentStep(DialogueStep.RISK_CHECK.name());
+        voiceSession.setTransferId("70000000-0000-0000-0000-000000000001");
+        return voiceSession;
+    }
+
+    private VoiceSessionVo processingRiskCheckSession() {
+        VoiceSessionVo voiceSession = riskCheckSession();
+        voiceSession.setStatus(VoiceSessionStatus.PROCESSING.name());
+        return voiceSession;
+    }
+
     private VoiceInteractionCardVo transferReadbackCard() {
         VoiceInteractionCardVo card = new VoiceInteractionCardVo();
         card.setSessionId(SESSION_ID);
@@ -1115,6 +1208,12 @@ class VoiceTurnServiceImplTest {
         card.setActions("[]");
         card.setCandidateItems("[]");
         card.setActive(true);
+        return card;
+    }
+
+    private VoiceInteractionCardVo transferRiskCheckCard() {
+        VoiceInteractionCardVo card = transferReadbackCard();
+        card.setCardType("TRANSFER_RISK_CHECK");
         return card;
     }
 

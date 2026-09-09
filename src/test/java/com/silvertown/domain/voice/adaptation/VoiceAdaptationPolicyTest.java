@@ -92,7 +92,7 @@ class VoiceAdaptationPolicyTest {
     }
 
     @Test
-    void firstSilenceAndRepeatedReaskAreBehaviorSupportSignals() {
+    void firstSilenceUsesNextResponseWhileRepeatedReaskUsesCurrentStep() {
         VoiceAdaptationState initial = VoiceAdaptationState.initial(STEP);
 
         assertDecision(
@@ -104,7 +104,7 @@ class VoiceAdaptationPolicyTest {
         assertDecision(
                 policy.decide(initial, STEP, VoiceAdaptationSignal.REPEATED_REASK, DEFAULT_RATE),
                 VoiceGuidanceMode.SUPPORT,
-                GuidanceScope.NEXT_RESPONSE,
+                GuidanceScope.CURRENT_STEP,
                 "-0.05",
                 "1.00");
     }
@@ -149,6 +149,27 @@ class VoiceAdaptationPolicyTest {
                 GuidanceScope.CURRENT_SESSION,
                 "0.05",
                 "1.10");
+    }
+
+    @Test
+    void defaultSpeedRequestReturnsToStandardUnlessAFinancialSafetySignalWins() {
+        VoiceAdaptationState compact = new VoiceAdaptationState(
+                VoiceGuidanceMode.COMPACT, GuidanceScope.CURRENT_SESSION, 0, STEP, 0);
+
+        assertDecision(
+                policy.decide(compact, STEP, VoiceAdaptationSignal.DEFAULT_SPEED_REQUEST, DEFAULT_RATE),
+                VoiceGuidanceMode.STANDARD,
+                GuidanceScope.CURRENT_SESSION,
+                "0",
+                "1.05");
+        assertDecision(
+                policy.decide(compact, STEP, Set.of(
+                        VoiceAdaptationSignal.DEFAULT_SPEED_REQUEST,
+                        VoiceAdaptationSignal.LOW_STT_CONFIDENCE), DEFAULT_RATE),
+                VoiceGuidanceMode.SUPPORT,
+                GuidanceScope.CURRENT_STEP,
+                "-0.05",
+                "1.00");
     }
 
     @Test

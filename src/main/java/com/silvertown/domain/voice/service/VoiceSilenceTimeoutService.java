@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.silvertown.domain.voice.enums.DialogueStep;
+import com.silvertown.domain.voice.enums.VoiceAdaptationSignal;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationSessionStateStore;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationPolicy;
 import com.silvertown.domain.voice.enums.VoiceSessionStatus;
 import com.silvertown.domain.voice.mapper.DialogueTurnMapper;
 import com.silvertown.domain.voice.mapper.VoiceSessionMapper;
@@ -38,9 +41,25 @@ public class VoiceSilenceTimeoutService {
     private final VoiceProgressPromptFactory voiceProgressPromptFactory;
     private final VoiceSsmlRenderer voiceSsmlRenderer;
     private final VoiceTransferOrchestrator voiceTransferOrchestrator;
+    private final VoiceAdaptationSessionStateStore voiceAdaptationSessionStateStore;
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final PlatformTransactionManager transactionManager;
+
+    /** Compatibility constructor retained for focused unit tests that do not load Spring. */
+    public VoiceSilenceTimeoutService(
+            VoiceSessionMapper voiceSessionMapper,
+            DialogueTurnMapper dialogueTurnMapper,
+            VoiceProgressPromptFactory voiceProgressPromptFactory,
+            VoiceSsmlRenderer voiceSsmlRenderer,
+            VoiceTransferOrchestrator voiceTransferOrchestrator,
+            ObjectMapper objectMapper,
+            Clock clock,
+            PlatformTransactionManager transactionManager) {
+        this(voiceSessionMapper, dialogueTurnMapper, voiceProgressPromptFactory, voiceSsmlRenderer,
+                voiceTransferOrchestrator, new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy()),
+                objectMapper, clock, transactionManager);
+    }
 
     @Scheduled(fixedDelayString = "${voice.session.silence-check-millis:1000}")
     public void handleExpiredSilence() {
@@ -78,10 +97,15 @@ public class VoiceSilenceTimeoutService {
             saveAiTurn(userId, sessionId, voiceProgressPromptFactory.closePrompt());
             voiceSessionMapper.closeOwned(
                     userId, sessionId, DialogueStep.CANCELLED.name(), LocalDateTime.now(clock));
+            voiceAdaptationSessionStateStore.clear(sessionId);
             return;
         }
 
+        DialogueStep currentDecisionStep = DialogueStep.valueOf(voiceSession.getCurrentStep());
+        voiceAdaptationSessionStateStore.recordSignals(
+                sessionId, currentDecisionStep, java.util.Set.of(VoiceAdaptationSignal.FIRST_SILENCE));
         saveAiTurn(userId, sessionId, voiceProgressPromptFactory.continuationQuestion());
+        voiceAdaptationSessionStateStore.responseRendered(sessionId, currentDecisionStep);
         voiceSessionMapper.updateStatusAndStep(
                 userId,
                 sessionId,

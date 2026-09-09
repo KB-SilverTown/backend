@@ -12,12 +12,17 @@ import com.silvertown.domain.recipient.dto.RecipientCandidateResponse;
 import com.silvertown.domain.voice.amount.AmountCandidateDecision;
 import com.silvertown.domain.voice.amount.AmountCandidateDecisionType;
 import com.silvertown.domain.voice.amount.KoreanAmountCandidateGenerator;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationSessionStateStore;
+import com.silvertown.domain.voice.adaptation.VoiceGuidanceCommand;
+import com.silvertown.domain.voice.adaptation.VoiceGuidanceCommandParser;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationPolicy;
 import com.silvertown.domain.voice.dto.VoiceTurnRequest;
 import com.silvertown.domain.voice.dto.VoiceTurnResponse;
 import com.silvertown.domain.voice.enums.DialogueStep;
 import com.silvertown.domain.voice.enums.VoiceFlowType;
 import com.silvertown.domain.voice.enums.VoiceIntent;
 import com.silvertown.domain.voice.enums.VoiceNextAction;
+import com.silvertown.domain.voice.enums.VoiceAdaptationSignal;
 import com.silvertown.domain.voice.enums.VoiceRequestedFunction;
 import com.silvertown.domain.voice.enums.VoiceSessionStatus;
 import com.silvertown.domain.voice.mapper.DialogueTurnMapper;
@@ -47,6 +52,7 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -89,10 +95,37 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final PlatformTransactionManager transactionManager;
+    private final VoiceGuidanceCommandParser voiceGuidanceCommandParser;
+    private final VoiceAdaptationSessionStateStore voiceAdaptationSessionStateStore;
+
+    /** Compatibility constructor retained for focused unit and integration tests. */
+    public VoiceTurnServiceImpl(
+            VoiceSessionMapper voiceSessionMapper,
+            DialogueTurnMapper dialogueTurnMapper,
+            VoiceTurnAnalysisPort voiceTurnAnalysisPort,
+            VoiceProgressPromptFactory voiceProgressPromptFactory,
+            VoiceSsmlRenderer voiceSsmlRenderer,
+            KoreanAmountCandidateGenerator amountCandidateGenerator,
+            VoiceTransferOrchestrator voiceTransferOrchestrator,
+            VoiceInteractionCardIssuer voiceInteractionCardIssuer,
+            VoiceInteractionCardMapper voiceInteractionCardMapper,
+            AccountVoiceResponseResolver accountVoiceResponseResolver,
+            BillVoiceResponseResolver billVoiceResponseResolver,
+            MobileBranchVoiceResponseResolver mobileBranchVoiceResponseResolver,
+            ObjectMapper objectMapper,
+            Clock clock,
+            PlatformTransactionManager transactionManager) {
+        this(voiceSessionMapper, dialogueTurnMapper, voiceTurnAnalysisPort, voiceProgressPromptFactory,
+                voiceSsmlRenderer, amountCandidateGenerator, voiceTransferOrchestrator,
+                voiceInteractionCardIssuer, voiceInteractionCardMapper, accountVoiceResponseResolver,
+                billVoiceResponseResolver, mobileBranchVoiceResponseResolver, objectMapper, clock,
+                transactionManager, new VoiceGuidanceCommandParser(),
+                new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy()));
+    }
 
     @Override
     public VoiceTurnResponse process(String userId, String sessionId, VoiceTurnRequest request) {
-        return processInternal(userId, sessionId, request,
+        return processInternal(userId, sessionId, request, false,
                 voiceSession -> analyzeRawOrContinuationTurn(request, voiceSession));
     }
 
@@ -104,7 +137,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         }
         BigDecimal confidence = result.confidence() == null ? BigDecimal.ZERO : result.confidence();
         VoiceTurnRequest request = VoiceTurnRequest.azureFinal(turnId, result.transcript(), confidence);
-        return processInternal(userId, sessionId, request, voiceSession -> {
+        return processInternal(userId, sessionId, request, true, voiceSession -> {
             VoiceTurnAnalysisResult contextual = resolveVoiceCardContext(request, voiceSession);
             return contextual != null ? contextual : analyzeAzureTransferFinal(request, result, voiceSession);
         });
@@ -114,6 +147,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
             String userId,
             String sessionId,
             VoiceTurnRequest request,
+            boolean azureTransferFinal,
             java.util.function.Function<VoiceSessionVo, VoiceTurnAnalysisResult> analysisResolver) {
         TurnClaim claim = claimTurn(userId, sessionId, request);
         if (claim.existingUserTurn() != null) {
@@ -121,9 +155,18 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         }
 
         try {
-            VoiceTurnAnalysisResult analysis = enrichRecipientCandidates(
-                    claim.voiceSession(), analysisResolver.apply(claim.voiceSession()));
-            return persistAndCompleteTurn(userId, sessionId, request, claim.voiceSession(), analysis);
+            VoiceGuidanceCommand command = voiceGuidanceCommandParser.parse(request.getTranscript()).orElse(null);
+            if (command != null && !azureTransferFinal) {
+                rejectRawBackendTransferTurn(claim.voiceSession());
+            }
+            VoiceTurnAnalysisResult resolved = command == null
+                    ? analysisResolver.apply(claim.voiceSession())
+                    : adaptationCommandResponse(request, claim.voiceSession());
+            VoiceTurnAnalysisResult analysis = enrichRecipientCandidates(claim.voiceSession(), resolved);
+            VoiceTurnResponse response = persistAndCompleteTurn(
+                    userId, sessionId, request, claim.voiceSession(), analysis);
+            completeAdaptationSignalHandling(claim.voiceSession(), request, analysis, command, response);
+            return response;
         } catch (DuplicateKeyException exception) {
             restoreTurnClaim(userId, sessionId, claim.previousStatus(), exception);
             throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
@@ -131,6 +174,75 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
             restoreTurnClaim(userId, sessionId, claim.previousStatus(), exception);
             throw exception;
         }
+    }
+
+    private VoiceTurnAnalysisResult adaptationCommandResponse(
+            VoiceTurnRequest request, VoiceSessionVo voiceSession) {
+        DialogueStep currentStep = DialogueStep.valueOf(voiceSession.getCurrentStep());
+        if (currentStep == DialogueStep.AWAITING_CONTINUATION) {
+            return voiceProgressPromptFactory.clarifyContinuation();
+        }
+        if (currentStep == DialogueStep.RISK_CHECK) {
+            return riskCheckGuidanceCommandResponse(voiceSession);
+        }
+        VoiceTurnAnalysisResult contextual = resolveVoiceCardContext(request, voiceSession);
+        if (contextual != null) {
+            return contextual;
+        }
+        DialogueTurnVo source = dialogueTurnMapper.findLatestBusinessAiTurn(voiceSession.getSessionId());
+        if (source == null) {
+            throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
+        }
+        return voiceProgressPromptFactory.resumePrompt(source);
+    }
+
+    private VoiceTurnAnalysisResult riskCheckGuidanceCommandResponse(VoiceSessionVo voiceSession) {
+        VoiceInteractionCardVo card = voiceInteractionCardMapper.findBySessionId(voiceSession.getSessionId());
+        if (card == null || !card.isActive() || !"TRANSFER_RISK_CHECK".equals(card.getCardType())
+                || voiceSession.getTransferId() == null) {
+            throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
+        }
+        TransferResponse transfer = voiceTransferOrchestrator.getTransfer(
+                UUID.fromString(voiceSession.getUserId()), UUID.fromString(voiceSession.getTransferId()));
+        return contextualResult(
+                DialogueStep.RISK_CHECK,
+                "안전을 위해 돈을 보내는 이유를 말씀해 주세요.",
+                transferCard("TRANSFER_RISK_CHECK", transfer),
+                VoiceNextAction.NONE,
+                null);
+    }
+
+    private void completeAdaptationSignalHandling(
+            VoiceSessionVo voiceSession,
+            VoiceTurnRequest request,
+            VoiceTurnAnalysisResult analysis,
+            VoiceGuidanceCommand command,
+            VoiceTurnResponse response) {
+        DialogueStep currentStep = DialogueStep.valueOf(voiceSession.getCurrentStep());
+        EnumSet<VoiceAdaptationSignal> signals = EnumSet.noneOf(VoiceAdaptationSignal.class);
+        if (command != null && command.adaptationSignal() != null) {
+            signals.add(command.adaptationSignal());
+        }
+        if (request.getInputType().name().equals("VOICE")
+                && request.getSttConfidence() != null
+                && request.getSttConfidence().compareTo(new BigDecimal("0.70")) < 0) {
+            signals.add(VoiceAdaptationSignal.LOW_STT_CONFIDENCE);
+        }
+        if (analysis.getNextAction() == VoiceNextAction.RECONFIRM_INPUT) {
+            signals.add(VoiceAdaptationSignal.FINANCIAL_RECONFIRMATION);
+        }
+        voiceAdaptationSessionStateStore.recordSignals(voiceSession.getSessionId(), currentStep, signals);
+        if (analysis.getNextAction() == VoiceNextAction.REASK_INPUT
+                || analysis.getNextAction() == VoiceNextAction.RECONFIRM_INPUT) {
+            voiceAdaptationSessionStateStore.recordReask(voiceSession.getSessionId(), currentStep);
+        } else if (command == null && analysis.getNextStep() != currentStep) {
+            voiceAdaptationSessionStateStore.recordNormalAdvance(voiceSession.getSessionId(), currentStep);
+        }
+        if (response.getState() == DialogueStep.CANCELLED) {
+            voiceAdaptationSessionStateStore.clear(voiceSession.getSessionId());
+            return;
+        }
+        voiceAdaptationSessionStateStore.responseRendered(voiceSession.getSessionId(), currentStep);
     }
 
     private VoiceTurnAnalysisResult analyzeRawTurn(VoiceTurnRequest request, VoiceSessionVo voiceSession) {
@@ -1027,6 +1139,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         voiceSessionMapper.updateStatusAndStep(
                 userId, sessionId, VoiceSessionStatus.EXPIRED.name(), voiceSession.getCurrentStep());
         voiceInteractionCardMapper.deactivateActiveBySessionId(sessionId);
+        voiceAdaptationSessionStateStore.clear(sessionId);
         voiceSession.setStatus(VoiceSessionStatus.EXPIRED.name());
     }
 
