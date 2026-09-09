@@ -216,6 +216,24 @@ class VoiceAdaptationPolicyTest {
                 "1.10");
     }
 
+    @Test
+    void supportCurrentSessionPersistsAcrossDecisionStepTransition() {
+        VoiceAdaptationState supportCurrentSession = new VoiceAdaptationState(
+                VoiceGuidanceMode.SUPPORT, GuidanceScope.CURRENT_SESSION, 0, STEP, 0);
+        DialogueStep nextStep = DialogueStep.WAITING_FINAL_APPROVAL;
+
+        VoiceAdaptationDecision decision = policy.decide(
+                supportCurrentSession, nextStep, Set.of(), DEFAULT_RATE);
+
+        assertDecision(
+                decision,
+                VoiceGuidanceMode.SUPPORT,
+                GuidanceScope.CURRENT_SESSION,
+                "-0.05",
+                "1.00");
+        assertEquals(nextStep, decision.nextState().currentDecisionStep());
+    }
+
     private void assertDecision(
             VoiceAdaptationDecision decision,
             VoiceGuidanceMode expectedMode,
