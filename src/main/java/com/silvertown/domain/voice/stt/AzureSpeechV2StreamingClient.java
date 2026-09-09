@@ -88,8 +88,10 @@ public class AzureSpeechV2StreamingClient {
             });
             recognizer.canceled.addEventListener((sender, event) -> {
                 if (event.getReason() == CancellationReason.Error) {
-                    log.warn("Azure Speech v2 recognition was cancelled with an error.");
-                    listener.onFailure();
+                    String providerReason = "CANCELLED_" + event.getErrorCode();
+                    log.warn("Azure Speech v2 recognition was cancelled. reason={}, errorCode={}",
+                            event.getReason(), event.getErrorCode());
+                    listener.onFailure(providerReason);
                 }
             });
             awaitRecognitionStart(recognizer.startContinuousRecognitionAsync());
