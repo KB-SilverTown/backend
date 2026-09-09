@@ -6,6 +6,7 @@ import com.silvertown.domain.voice.enums.VoiceSessionStatus;
 import com.silvertown.domain.voice.mapper.DialogueTurnMapper;
 import com.silvertown.domain.voice.mapper.VoiceSessionMapper;
 import com.silvertown.domain.voice.service.VoiceStreamLifecycleService;
+import com.silvertown.domain.voice.validation.VoiceIdentifierPattern;
 import com.silvertown.domain.voice.vo.VoiceSessionVo;
 import com.silvertown.global.common.exception.BusinessException;
 import com.silvertown.global.common.exception.ErrorCode;
@@ -25,6 +26,7 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
     @Override
     @Transactional
     public long claimInputTurn(String userId, String sessionId, String inputTurnId) {
+        requireTurnId(inputTurnId);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
         requireBackendTransferSession(session);
         requireStatus(session, VoiceSessionStatus.LISTENING);
@@ -37,6 +39,7 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
     @Transactional
     public void beginFinalProcessing(
             String userId, String sessionId, String inputTurnId, long lifecycleGeneration) {
+        requireTurnId(inputTurnId);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
         requireBackendTransferSession(session);
         requireStatus(session, VoiceSessionStatus.LISTENING);
@@ -53,6 +56,8 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
             String inputTurnId,
             long lifecycleGeneration,
             String aiTurnId) {
+        requireTurnId(inputTurnId);
+        requireTurnId(aiTurnId);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
         requireBackendTransferSession(session);
         requireStatus(session, VoiceSessionStatus.PROCESSING);
@@ -67,6 +72,7 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
     @Override
     @Transactional
     public void interruptAiTts(String userId, String sessionId, String interruptedAiTurnId) {
+        requireTurnId(interruptedAiTurnId);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
         requireBackendTransferSession(session);
         requireStatus(session, VoiceSessionStatus.SPEAKING);
@@ -82,6 +88,7 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
     @Override
     @Transactional
     public void cancelInputStream(String userId, String sessionId, String inputTurnId) {
+        requireTurnId(inputTurnId);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
         requireBackendTransferSession(session);
         VoiceSessionStatus status = VoiceSessionStatus.valueOf(session.getStatus());
@@ -143,6 +150,12 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
     private void requireUpdated(int updatedRows) {
         if (updatedRows != 1) {
             throw turnConflict();
+        }
+    }
+
+    private void requireTurnId(String turnId) {
+        if (turnId == null || !turnId.matches(VoiceIdentifierPattern.CANONICAL_UUID_REGEX)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
     }
 
