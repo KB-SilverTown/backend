@@ -6,12 +6,15 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-@Api(tags = "계좌") @RestController @RequestMapping("/api/accounts") @RequiredArgsConstructor
+@Api(tags = "계좌") @RestController
+@RequestMapping(value = "/api/accounts", produces = MediaType.APPLICATION_JSON_VALUE)
+@RequiredArgsConstructor
 public class AccountController {
     private final AccountService accountService;
     private final AuthenticatedUserId authenticatedUserId;

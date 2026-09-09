@@ -10,6 +10,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import javax.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @Api(tags = "안심 송금")
 @RestController
-@RequestMapping("/api/transfers")
+@RequestMapping(value = "/api/transfers", produces = MediaType.APPLICATION_JSON_VALUE)
 @RequiredArgsConstructor
 public class RiskScoreController {
     private final RiskScoreService riskScoreService;

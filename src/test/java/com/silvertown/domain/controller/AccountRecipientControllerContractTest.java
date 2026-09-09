@@ -2,6 +2,7 @@ package com.silvertown.domain.controller;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.http.converter.xml.MappingJackson2XmlHttpMessageConverter;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -44,9 +46,11 @@ class AccountRecipientControllerContractTest {
                         "홍길순", "자녀", "004", "***-***-0789", "HISTORY", null));
         AuthenticatedUserId authenticatedUserId = new AuthenticatedUserId();
         mockMvc = MockMvcBuilders.standaloneSetup(
-                        new AccountController(accountService, authenticatedUserId),
-                        new RecipientController(recipientService, authenticatedUserId))
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                new AccountController(accountService, authenticatedUserId),
+                new RecipientController(recipientService, authenticatedUserId))
+                .setMessageConverters(
+                        new MappingJackson2XmlHttpMessageConverter(),
+                        new MappingJackson2HttpMessageConverter(objectMapper))
                 .build();
     }
 
@@ -59,6 +63,13 @@ class AccountRecipientControllerContractTest {
         assertEquals("***-***-6789", account.get("accountNumberMasked").asText());
         assertEquals(1_250_000, account.get("balance").asLong());
         assertFalse(account.has("accountNumberEncrypted"));
+    }
+
+    @Test
+    void accountResponseUsesJsonWhenClientAcceptsAnyMediaType() throws Exception {
+        mockMvc.perform(get("/api/accounts").principal(authentication()).accept(MediaType.ALL))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
     }
 
     @Test
