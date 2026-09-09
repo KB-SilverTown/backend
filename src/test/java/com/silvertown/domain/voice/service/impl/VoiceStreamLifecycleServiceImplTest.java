@@ -108,12 +108,12 @@ class VoiceStreamLifecycleServiceImplTest {
         VoiceSessionVo session = session(VoiceSessionStatus.SPEAKING, null, AI_TURN_ID, 3);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(session);
         when(dialogueTurnMapper.markInterrupted(AI_TURN_ID)).thenReturn(1);
-        when(voiceSessionMapper.interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, NOW)).thenReturn(1);
+        when(voiceSessionMapper.interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, 3, NOW)).thenReturn(1);
 
-        service.interruptAiTts(USER_ID, SESSION_ID, AI_TURN_ID);
+        service.interruptAiTts(USER_ID, SESSION_ID, AI_TURN_ID, 3);
 
         verify(dialogueTurnMapper).markInterrupted(AI_TURN_ID);
-        verify(voiceSessionMapper).interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, NOW);
+        verify(voiceSessionMapper).interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, 3, NOW);
     }
 
     @Test
@@ -122,7 +122,7 @@ class VoiceStreamLifecycleServiceImplTest {
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(speaking);
 
         assertTurnConflict(() -> service.interruptAiTts(
-                USER_ID, SESSION_ID, "30000000-0000-0000-0000-000000000002"));
+                USER_ID, SESSION_ID, "30000000-0000-0000-0000-000000000002", 3));
         verify(dialogueTurnMapper, never()).markInterrupted(Mockito.anyString());
 
         VoiceSessionVo expired = session(VoiceSessionStatus.EXPIRED, null, null, 3);
@@ -143,29 +143,40 @@ class VoiceStreamLifecycleServiceImplTest {
     }
 
     @Test
-    void rejectsStaleInputTurnAfterTheLifecycleGenerationChanges() {
-        String nextInputTurnId = "20000000-0000-0000-0000-000000000002";
-        VoiceSessionVo newerStream = session(VoiceSessionStatus.LISTENING, nextInputTurnId, null, 6);
+    void rejectsStaleInputCancellationEvenWhenTheTurnIdWasReused() {
+        VoiceSessionVo newerStream = session(VoiceSessionStatus.LISTENING, INPUT_TURN_ID, null, 6);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(newerStream);
 
-        assertTurnConflict(() -> service.cancelInputStream(USER_ID, SESSION_ID, INPUT_TURN_ID));
+        assertTurnConflict(() -> service.cancelInputStream(USER_ID, SESSION_ID, INPUT_TURN_ID, 5));
 
         verify(voiceSessionMapper, never()).cancelActiveInputTurn(
-                eq(USER_ID), eq(SESSION_ID), eq(INPUT_TURN_ID), eq(NOW));
+                eq(USER_ID), eq(SESSION_ID), eq(INPUT_TURN_ID), eq(5L), eq(NOW));
+    }
+
+    @Test
+    void rejectsStaleAiInterruptionEvenWhenTheTurnIdWasReused() {
+        VoiceSessionVo newerTurn = session(VoiceSessionStatus.SPEAKING, null, AI_TURN_ID, 6);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(newerTurn);
+
+        assertTurnConflict(() -> service.interruptAiTts(USER_ID, SESSION_ID, AI_TURN_ID, 5));
+
+        verify(dialogueTurnMapper, never()).markInterrupted(AI_TURN_ID);
+        verify(voiceSessionMapper, never()).interruptActiveAiTurn(
+                eq(USER_ID), eq(SESSION_ID), eq(AI_TURN_ID), eq(5L), eq(NOW));
     }
 
     @Test
     void cancelsCurrentInputStreamAndRejectsClosedSessions() {
         VoiceSessionVo active = session(VoiceSessionStatus.PROCESSING, INPUT_TURN_ID, null, 5);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(active);
-        when(voiceSessionMapper.cancelActiveInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, NOW)).thenReturn(1);
+        when(voiceSessionMapper.cancelActiveInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, 5, NOW)).thenReturn(1);
 
-        service.cancelInputStream(USER_ID, SESSION_ID, INPUT_TURN_ID);
+        service.cancelInputStream(USER_ID, SESSION_ID, INPUT_TURN_ID, 5);
 
         VoiceSessionVo closed = session(VoiceSessionStatus.CLOSED, null, null, 5);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(closed);
         assertTurnConflict(() -> service.claimInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID));
-        verify(voiceSessionMapper).cancelActiveInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, NOW);
+        verify(voiceSessionMapper).cancelActiveInputTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, 5, NOW);
     }
 
     @Test

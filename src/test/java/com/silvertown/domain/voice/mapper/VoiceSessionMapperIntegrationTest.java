@@ -162,7 +162,7 @@ class VoiceSessionMapperIntegrationTest {
             assertEquals(0, speaking.getLifecycleGeneration());
 
             assertEquals(1, mapper.interruptActiveAiTurn(
-                    OWNER_ID.toString(), SESSION_ID.toString(), aiTurnId, STREAM_NOW));
+                    OWNER_ID.toString(), SESSION_ID.toString(), aiTurnId, 0, STREAM_NOW));
             VoiceSessionVo listening = mapper.findOwnedById(OWNER_ID.toString(), SESSION_ID.toString());
             assertEquals("LISTENING", listening.getStatus());
             assertNull(listening.getActiveAiTurnId());
@@ -171,7 +171,7 @@ class VoiceSessionMapperIntegrationTest {
             assertEquals(1, mapper.claimStreamInputTurn(
                     OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, STREAM_NOW));
             assertEquals(1, mapper.cancelActiveInputTurn(
-                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, STREAM_NOW));
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, 1, STREAM_NOW));
             VoiceSessionVo cancelledInput = mapper.findOwnedById(
                     OWNER_ID.toString(), SESSION_ID.toString());
             assertEquals("LISTENING", cancelledInput.getStatus());
