@@ -28,6 +28,8 @@ public enum ErrorCode {
     RECIPIENT_NOT_FOUND(HttpStatus.NOT_FOUND, "RECIPIENT_NOT_FOUND", "수취인을 찾을 수 없습니다."),
     REMINDER_QUERY_INVALID(HttpStatus.BAD_REQUEST, "REMINDER_QUERY_INVALID", "리마인더 조회 조건을 확인해 주세요."),
     REMINDER_SCHEDULE_INVALID(HttpStatus.BAD_REQUEST, "REMINDER_SCHEDULE_INVALID", "리마인더 예약 시각을 확인해 주세요."),
+    REMINDER_NOT_FOUND(HttpStatus.NOT_FOUND, "REMINDER_NOT_FOUND", "리마인더를 찾을 수 없습니다."),
+    REMINDER_INVALID_STATE(HttpStatus.CONFLICT, "REMINDER_INVALID_STATE", "현재 상태에서는 리마인더를 변경할 수 없습니다."),
     BILL_NOT_FOUND(HttpStatus.NOT_FOUND, "BILL_NOT_FOUND", "고지서를 찾을 수 없습니다."),
     BILL_IMAGE_INVALID(HttpStatus.BAD_REQUEST, "BILL_IMAGE_INVALID", "고지서 이미지를 확인해 주세요."),
     BILL_OCR_FAILED(HttpStatus.BAD_GATEWAY, "BILL_OCR_FAILED", "고지서 내용을 읽지 못했습니다. 다시 촬영해 주세요."),

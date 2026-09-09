@@ -16,5 +16,11 @@ public interface ReminderMapper {
 
     int existsOwnedBill(@Param("userId") String userId, @Param("billId") String billId);
 
+    ReminderVo findOwnedById(@Param("userId") String userId, @Param("reminderId") String reminderId);
+
     int insert(ReminderVo reminder);
+
+    int updateScheduledForOwner(ReminderVo reminder);
+
+    int cancelScheduledForOwner(@Param("userId") String userId, @Param("reminderId") String reminderId);
 }

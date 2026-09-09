@@ -2,7 +2,9 @@ package com.silvertown.domain.reminder.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -35,10 +37,11 @@ class ReminderControllerContractTest {
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     private MockMvc mockMvc;
+    private ReminderService reminderService;
 
     @BeforeEach
     void setUp() {
-        ReminderService reminderService = Mockito.mock(ReminderService.class);
+        reminderService = Mockito.mock(ReminderService.class);
         ReminderResponse response = new ReminderResponse(
                 REMINDER_ID,
                 "전기요금 납부",
@@ -49,6 +52,8 @@ class ReminderControllerContractTest {
                         Mockito.any(), Mockito.any()))
                 .thenReturn(new ReminderListResponse(List.of(response)));
         Mockito.when(reminderService.create(Mockito.eq(USER_ID), Mockito.any())).thenReturn(response);
+        Mockito.when(reminderService.update(Mockito.eq(USER_ID), Mockito.eq(REMINDER_ID), Mockito.any()))
+                .thenReturn(response);
 
         mockMvc = MockMvcBuilders.standaloneSetup(
                         new ReminderController(reminderService, new AuthenticatedUserId()))
@@ -84,6 +89,28 @@ class ReminderControllerContractTest {
         assertEquals(REMINDER_ID.toString(), response.get("id").asText());
         assertEquals("전기요금 납부", response.get("title").asText());
         assertEquals("SCHEDULED", response.get("status").asText());
+    }
+
+    @Test
+    void updatesReminderWithTheFrontendRequestShape() throws Exception {
+        JsonNode response = objectMapper.readTree(mockMvc.perform(put("/api/reminders/{reminderId}", REMINDER_ID)
+                        .principal(authentication())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"전기요금 납부\",\"scheduledAt\":\"2026-09-09T09:00:00+09:00\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray());
+
+        assertEquals(REMINDER_ID.toString(), response.get("id").asText());
+        assertEquals("SCHEDULED", response.get("status").asText());
+    }
+
+    @Test
+    void cancelsReminderWithNoContent() throws Exception {
+        mockMvc.perform(delete("/api/reminders/{reminderId}", REMINDER_ID)
+                        .principal(authentication()))
+                .andExpect(status().isNoContent());
+
+        Mockito.verify(reminderService).cancel(USER_ID, REMINDER_ID);
     }
 
     @Test

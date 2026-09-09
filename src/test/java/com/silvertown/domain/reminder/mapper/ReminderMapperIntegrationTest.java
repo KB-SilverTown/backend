@@ -119,6 +119,31 @@ class ReminderMapperIntegrationTest {
     }
 
     @Test
+    void updatesAndCancelsOnlyOwnedScheduledReminder() {
+        String reminderId = "20000000-0000-0000-0000-000000000007";
+        try (SqlSession sqlSession = sessionFactory.openSession()) {
+            ReminderMapper mapper = sqlSession.getMapper(ReminderMapper.class);
+            mapper.insert(reminder(
+                    reminderId,
+                    OWNER_ID,
+                    null,
+                    "변경 전 일정",
+                    LocalDateTime.of(2026, 9, 10, 9, 0),
+                    "SCHEDULED"));
+            sqlSession.commit();
+
+            ReminderVo owned = mapper.findOwnedById(OWNER_ID, reminderId);
+            owned.setTitle("변경 후 일정");
+            owned.setRemindAt(LocalDateTime.of(2026, 9, 11, 9, 0));
+            assertEquals(1, mapper.updateScheduledForOwner(owned));
+            assertEquals("변경 후 일정", mapper.findOwnedById(OWNER_ID, reminderId).getTitle());
+            assertEquals(1, mapper.cancelScheduledForOwner(OWNER_ID, reminderId));
+            assertEquals("CANCELLED", mapper.findOwnedById(OWNER_ID, reminderId).getStatus());
+            assertEquals(0, mapper.cancelScheduledForOwner(OTHER_ID, reminderId));
+        }
+    }
+
+    @Test
     void allowsOnlyOneConcurrentDuplicateInsert() throws Exception {
         LocalDateTime remindAt = LocalDateTime.of(2026, 9, 10, 9, 0);
         ExecutorService executor = Executors.newFixedThreadPool(2);
