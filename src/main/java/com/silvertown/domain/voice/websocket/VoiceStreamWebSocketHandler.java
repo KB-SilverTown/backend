@@ -9,6 +9,7 @@ import com.silvertown.domain.voice.enums.SttMode;
 import com.silvertown.domain.voice.enums.VoiceFlowType;
 import com.silvertown.domain.voice.enums.VoiceSessionStatus;
 import com.silvertown.domain.voice.service.VoiceSessionService;
+import com.silvertown.domain.voice.service.VoiceStreamLifecycleService;
 import com.silvertown.domain.voice.service.VoiceTurnService;
 import com.silvertown.domain.voice.stt.AzureSpeechDetailedResult;
 import com.silvertown.domain.voice.stt.AzureSpeechRecognitionListener;
@@ -58,6 +59,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
     private static final long DEFAULT_RESUME_GRACE_MILLIS = 10_000L;
 
     private final VoiceSessionService voiceSessionService;
+    private final VoiceStreamLifecycleService voiceStreamLifecycleService;
     private final VoiceTurnService voiceTurnService;
     private final AzureSpeechV2StreamingClient azureSpeechClient;
     private final ObjectMapper objectMapper;
@@ -69,6 +71,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
 
     public VoiceStreamWebSocketHandler(
             VoiceSessionService voiceSessionService,
+            VoiceStreamLifecycleService voiceStreamLifecycleService,
             VoiceTurnService voiceTurnService,
             AzureSpeechV2StreamingClient azureSpeechClient,
             ObjectMapper objectMapper,
@@ -78,6 +81,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             throw new IllegalArgumentException("voice.stream.resume-grace-millis must be positive.");
         }
         this.voiceSessionService = voiceSessionService;
+        this.voiceStreamLifecycleService = voiceStreamLifecycleService;
         this.voiceTurnService = voiceTurnService;
         this.azureSpeechClient = azureSpeechClient;
         this.objectMapper = objectMapper;
@@ -105,18 +109,14 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         try {
             JsonNode event = objectMapper.readTree(message.getPayload());
             String type = event.path("type").asText();
-            String turnId = event.path("turnId").asText();
-            if (!isCanonicalUuid(turnId)) {
-                throw new BusinessException(ErrorCode.INVALID_REQUEST);
-            }
             if (START.equals(type)) {
-                start(session, turnId);
+                start(session, inputTurnId(event));
             } else if (RESUME.equals(type)) {
-                resume(session, turnId, resumeLastReceivedSequence(event));
+                resume(session, inputTurnId(event), resumeLastReceivedSequence(event));
             } else if (STOP.equals(type)) {
-                stop(session, turnId);
+                stop(session, inputTurnId(event));
             } else if (BARGE_IN.equals(type)) {
-                cancel(session, turnId);
+                bargeIn(session, event);
             } else {
                 throw new BusinessException(ErrorCode.INVALID_REQUEST);
             }
@@ -130,7 +130,10 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) {
         ActiveStream active = activeStreams.get(session.getId());
-        if (active == null || active.cancelled.get() || active.stopRequested.get()) {
+        if (active == null
+                || !active.startAcknowledged.get()
+                || active.cancelled.get()
+                || active.stopRequested.get()) {
             sendError(session, ErrorCode.VOICE_TURN_CONFLICT);
             return;
         }
@@ -183,11 +186,10 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         }
     }
 
-    private void start(WebSocketSession session, String turnId) {
+    private void start(WebSocketSession session, String inputTurnId) {
         String userId = userId(session);
         String sessionId = voiceSessionId(session);
-        validateStartSession(voiceSessionService.get(userId, sessionId));
-        if (activeStreams.containsKey(session.getId()) || activeVoiceStreams.containsKey(sessionId)) {
+        if (activeStreams.containsKey(session.getId()) || hasActiveInputForSession(sessionId)) {
             throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
         }
 
@@ -196,12 +198,13 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         StreamLifecycle lifecycle = new StreamLifecycle();
         AzureSpeechRecognitionStream stream = null;
         ActiveStream active = null;
+        long lifecycleGeneration = voiceStreamLifecycleService.claimInputTurn(userId, sessionId, inputTurnId);
         try {
             stream = azureSpeechClient.open(new AzureSpeechRecognitionListener() {
                 @Override
                 public void onPartialTranscript(String transcript) {
                     if (!cancelled.get()) {
-                        sendPartial(responseSession(lifecycle.active.get(), session), turnId, transcript);
+                        sendPartial(responseSession(lifecycle.active.get(), session), inputTurnId, transcript);
                     }
                 }
 
@@ -210,13 +213,22 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
                     if (cancelled.get() || !finalHandled.compareAndSet(false, true)) {
                         return;
                     }
-                    sendFinal(responseSession(lifecycle.active.get(), session), turnId, result);
                     try {
+                        voiceStreamLifecycleService.beginFinalProcessing(
+                                userId, sessionId, inputTurnId, lifecycleGeneration);
+                        if (cancelled.get()) {
+                            return;
+                        }
+                        sendFinal(responseSession(lifecycle.active.get(), session), inputTurnId, result);
                         VoiceTurnResponse response = voiceTurnService.processAzureTransferFinal(
-                                userId, sessionId, turnId, result);
-                        sendTurnResponse(responseSession(lifecycle.active.get(), session), turnId, response);
+                                userId, sessionId, inputTurnId, lifecycleGeneration, result);
+                        if (!cancelled.get()) {
+                            sendTurnResponse(responseSession(lifecycle.active.get(), session), inputTurnId, response);
+                        }
                     } catch (BusinessException exception) {
-                        sendError(responseSession(lifecycle.active.get(), session), exception.getErrorCode());
+                        if (!cancelled.get() && exception.getErrorCode() != ErrorCode.VOICE_TURN_CONFLICT) {
+                            sendError(responseSession(lifecycle.active.get(), session), exception.getErrorCode());
+                        }
                     } finally {
                         requestCloseActive(lifecycle);
                     }
@@ -226,16 +238,25 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
                 public void onFailure() {
                     if (!cancelled.get()) {
                         sendError(responseSession(lifecycle.active.get(), session), ErrorCode.SPEECH_RECOGNITION_FAILED);
+                        cancelInputLifecycle(userId, sessionId, inputTurnId, lifecycleGeneration);
                     }
                     requestCloseActive(lifecycle);
                 }
             });
-            active = new ActiveStream(userId, sessionId, turnId, stream, cancelled, session, resumeGraceNanos);
+            active = new ActiveStream(
+                    userId,
+                    sessionId,
+                    inputTurnId,
+                    lifecycleGeneration,
+                    stream,
+                    cancelled,
+                    session,
+                    resumeGraceNanos);
             synchronized (streamLifecycleMonitor) {
                 if (!session.isOpen()
-                        || activeVoiceStreams.putIfAbsent(sessionId, active) != null
+                        || activeVoiceStreams.putIfAbsent(streamKey(sessionId, inputTurnId), active) != null
                         || activeStreams.putIfAbsent(session.getId(), active) != null) {
-                    activeVoiceStreams.remove(sessionId, active);
+                    activeVoiceStreams.remove(streamKey(sessionId, inputTurnId), active);
                     activeStreams.remove(session.getId(), active);
                     stopAndClose(stream);
                     stream = null;
@@ -243,69 +264,86 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
                 }
             }
             lifecycle.active.set(active);
+            active.startAcknowledged.set(true);
+            sendStartAck(session, inputTurnId);
             if (lifecycle.cleanupRequested.get()) {
                 scheduleCloseActive(active);
             }
         } catch (RuntimeException exception) {
             if (active != null) {
                 synchronized (streamLifecycleMonitor) {
-                    activeVoiceStreams.remove(sessionId, active);
+                    activeVoiceStreams.remove(streamKey(sessionId, inputTurnId), active);
                     activeStreams.remove(session.getId(), active);
                 }
             }
             if (stream != null) {
                 stopAndClose(stream);
             }
+            cancelInputLifecycle(userId, sessionId, inputTurnId, lifecycleGeneration);
             throw exception;
         }
     }
 
-    private void validateStartSession(VoiceSessionDetailResponse voiceSession) {
-        if (voiceSession.getFlowType() != VoiceFlowType.TRANSFER
-                || voiceSession.getSttMode() != SttMode.BACKEND_STREAM
-                || voiceSession.getStatus() != VoiceSessionStatus.LISTENING) {
-            throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
-        }
-    }
-
-    private void stop(WebSocketSession session, String turnId) {
-        ActiveStream active = requiredActive(session, turnId);
+    private void stop(WebSocketSession session, String inputTurnId) {
+        ActiveStream active = requiredActive(session, inputTurnId);
         active.stopRequested.set(true);
         try {
             active.stopRecognition();
+            sendStopAck(session, inputTurnId);
         } catch (BusinessException exception) {
+            active.cancelled.set(true);
+            cancelInputLifecycle(active);
             scheduleCloseActive(active);
             throw exception;
         }
     }
 
-    private void cancel(WebSocketSession session, String turnId) {
-        ActiveStream active = requiredActive(session, turnId);
-        active.cancelled.set(true);
-        scheduleCloseActive(active);
-        ObjectNode response = objectMapper.createObjectNode();
-        response.put("type", "CANCEL_ACK");
-        response.put("turnId", turnId);
-        send(session, response);
+    private void bargeIn(WebSocketSession session, JsonNode event) {
+        String target = event.path("target").asText();
+        if ("AI_TTS".equals(target)) {
+            String interruptedAiTurnId = requiredIdentifier(event, "interruptedAiTurnId");
+            voiceStreamLifecycleService.interruptAiTts(
+                    userId(session), voiceSessionId(session), interruptedAiTurnId);
+            sendCancelledAi(session, interruptedAiTurnId);
+            return;
+        }
+        if ("INPUT_STREAM".equals(target)) {
+            String inputTurnId = inputTurnId(event);
+            ActiveStream active = requiredActive(session, inputTurnId);
+            active.cancelled.set(true);
+            try {
+                voiceStreamLifecycleService.cancelInputStream(
+                        active.userId,
+                        active.voiceSessionId,
+                        active.inputTurnId,
+                        active.lifecycleGeneration);
+            } catch (BusinessException exception) {
+                active.cancelled.set(false);
+                throw exception;
+            }
+            closeActive(active);
+            sendCancelledInput(session, inputTurnId);
+            return;
+        }
+        throw new BusinessException(ErrorCode.INVALID_REQUEST);
     }
 
-    private ActiveStream requiredActive(WebSocketSession session, String turnId) {
+    private ActiveStream requiredActive(WebSocketSession session, String inputTurnId) {
         ActiveStream active = activeStreams.get(session.getId());
-        if (active == null || !active.turnId.equals(turnId)) {
+        if (active == null || !active.inputTurnId.equals(inputTurnId)) {
             throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
         }
         return active;
     }
 
-    private void resume(WebSocketSession session, String turnId, long lastReceivedSequence) {
+    private void resume(WebSocketSession session, String inputTurnId, long lastReceivedSequence) {
         String userId = userId(session);
         String sessionId = voiceSessionId(session);
-        validateStartSession(voiceSessionService.get(userId, sessionId));
-        ActiveStream active = activeVoiceStreams.get(sessionId);
+        ActiveStream active = activeVoiceStreams.get(streamKey(sessionId, inputTurnId));
         if (active == null) {
             throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
         }
-        if (!active.matchesUserAndTurn(userId, turnId)) {
+        if (!active.matchesUserAndTurn(userId, inputTurnId)) {
             throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
         }
         if (!active.matchesLastReceivedSequence(lastReceivedSequence)) {
@@ -314,7 +352,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
         }
         synchronized (streamLifecycleMonitor) {
-            if (activeVoiceStreams.get(sessionId) != active
+            if (activeVoiceStreams.get(streamKey(sessionId, inputTurnId)) != active
                     || activeStreams.containsKey(session.getId())
                     || !active.resume(session)) {
                 throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
@@ -335,18 +373,51 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         return sequence.longValue();
     }
 
-    private void sendPartial(WebSocketSession session, String turnId, String transcript) {
+    private void sendStartAck(WebSocketSession session, String inputTurnId) {
+        ObjectNode response = objectMapper.createObjectNode();
+        response.put("type", "START_ACK");
+        response.put("inputTurnId", inputTurnId);
+        response.put("nextSequence", 0);
+        send(session, response);
+    }
+
+    private void sendStopAck(WebSocketSession session, String inputTurnId) {
+        ObjectNode response = objectMapper.createObjectNode();
+        response.put("type", "STOP_ACK");
+        response.put("inputTurnId", inputTurnId);
+        send(session, response);
+    }
+
+    private void sendCancelledAi(WebSocketSession session, String interruptedAiTurnId) {
+        ObjectNode response = objectMapper.createObjectNode();
+        response.put("type", "CANCELLED");
+        response.put("target", "AI_TTS");
+        response.put("interruptedAiTurnId", interruptedAiTurnId);
+        response.put("readyForStart", true);
+        send(session, response);
+    }
+
+    private void sendCancelledInput(WebSocketSession session, String inputTurnId) {
+        ObjectNode response = objectMapper.createObjectNode();
+        response.put("type", "CANCELLED");
+        response.put("target", "INPUT_STREAM");
+        response.put("inputTurnId", inputTurnId);
+        response.put("readyForStart", true);
+        send(session, response);
+    }
+
+    private void sendPartial(WebSocketSession session, String inputTurnId, String transcript) {
         ObjectNode response = objectMapper.createObjectNode();
         response.put("type", "PARTIAL_TRANSCRIPT");
-        response.put("turnId", turnId);
+        response.put("inputTurnId", inputTurnId);
         response.put("text", transcript);
         send(session, response);
     }
 
-    private void sendFinal(WebSocketSession session, String turnId, AzureSpeechDetailedResult result) {
+    private void sendFinal(WebSocketSession session, String inputTurnId, AzureSpeechDetailedResult result) {
         ObjectNode response = objectMapper.createObjectNode();
         response.put("type", "FINAL_TRANSCRIPT");
-        response.put("turnId", turnId);
+        response.put("inputTurnId", inputTurnId);
         response.put("text", result.transcript());
         if (result.confidence() != null) {
             response.put("sttConfidence", result.confidence());
@@ -354,10 +425,10 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         send(session, response);
     }
 
-    private void sendTurnResponse(WebSocketSession session, String turnId, VoiceTurnResponse result) {
+    private void sendTurnResponse(WebSocketSession session, String inputTurnId, VoiceTurnResponse result) {
         ObjectNode response = objectMapper.createObjectNode();
         response.put("type", "TURN_RESPONSE");
-        response.put("turnId", turnId);
+        response.put("inputTurnId", inputTurnId);
         response.set("data", objectMapper.valueToTree(result));
         send(session, response);
     }
@@ -401,7 +472,8 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             return;
         }
         synchronized (streamLifecycleMonitor) {
-            if (!activeVoiceStreams.remove(expectedActive.voiceSessionId, expectedActive)) {
+            if (!activeVoiceStreams.remove(
+                    streamKey(expectedActive.voiceSessionId, expectedActive.inputTurnId), expectedActive)) {
                 return;
             }
             WebSocketSession attachedSession = expectedActive.clearAttachedSession();
@@ -481,10 +553,58 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         return value != null && value.matches(VoiceIdentifierPattern.CANONICAL_UUID_REGEX);
     }
 
+    private String inputTurnId(JsonNode event) {
+        String inputTurnId = event.path("inputTurnId").asText();
+        if (inputTurnId.isBlank()) {
+            inputTurnId = event.path("turnId").asText();
+        }
+        if (!isCanonicalUuid(inputTurnId)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+        return inputTurnId;
+    }
+
+    private String requiredIdentifier(JsonNode event, String fieldName) {
+        String value = event.path(fieldName).asText();
+        if (value.isBlank()) {
+            value = event.path("turnId").asText();
+        }
+        if (!isCanonicalUuid(value)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+        return value;
+    }
+
+    private String streamKey(String sessionId, String inputTurnId) {
+        return sessionId + ':' + inputTurnId;
+    }
+
+    private boolean hasActiveInputForSession(String sessionId) {
+        return activeVoiceStreams.values().stream()
+                .anyMatch(active -> active.voiceSessionId.equals(sessionId));
+    }
+
+    private void cancelInputLifecycle(ActiveStream active) {
+        cancelInputLifecycle(
+                active.userId, active.voiceSessionId, active.inputTurnId, active.lifecycleGeneration);
+    }
+
+    private void cancelInputLifecycle(
+            String userId, String sessionId, String inputTurnId, long lifecycleGeneration) {
+        try {
+            voiceStreamLifecycleService.cancelInputStream(userId, sessionId, inputTurnId, lifecycleGeneration);
+        } catch (BusinessException exception) {
+            if (exception.getErrorCode() != ErrorCode.VOICE_TURN_CONFLICT) {
+                throw exception;
+            }
+        }
+    }
+
     private static class ActiveStream {
         private final String userId;
         private final String voiceSessionId;
-        private final String turnId;
+        private final String inputTurnId;
+        private final long lifecycleGeneration;
         private final AzureSpeechRecognitionStream stream;
         private final AtomicBoolean cancelled;
         private final long resumeGraceNanos;
@@ -492,6 +612,7 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         private final AtomicBoolean recognitionStopped = new AtomicBoolean();
         private final AtomicBoolean recognitionClosed = new AtomicBoolean();
         private final AtomicBoolean cleanupScheduled = new AtomicBoolean();
+        private final AtomicBoolean startAcknowledged = new AtomicBoolean();
         private long nextAudioSequence;
         private WebSocketSession attachedSession;
         private long detachedAtNanos;
@@ -499,14 +620,16 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
         private ActiveStream(
                 String userId,
                 String voiceSessionId,
-                String turnId,
+                String inputTurnId,
+                long lifecycleGeneration,
                 AzureSpeechRecognitionStream stream,
                 AtomicBoolean cancelled,
                 WebSocketSession attachedSession,
                 long resumeGraceNanos) {
             this.userId = userId;
             this.voiceSessionId = voiceSessionId;
-            this.turnId = turnId;
+            this.inputTurnId = inputTurnId;
+            this.lifecycleGeneration = lifecycleGeneration;
             this.stream = stream;
             this.cancelled = cancelled;
             this.attachedSession = attachedSession;
@@ -545,8 +668,8 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
             return ConnectionCloseAction.DETACHED_FOR_RESUME;
         }
 
-        private synchronized boolean matchesUserAndTurn(String userId, String turnId) {
-            return this.userId.equals(userId) && this.turnId.equals(turnId);
+        private synchronized boolean matchesUserAndTurn(String userId, String inputTurnId) {
+            return this.userId.equals(userId) && this.inputTurnId.equals(inputTurnId);
         }
 
         private synchronized boolean matchesLastReceivedSequence(long lastReceivedSequence) {
