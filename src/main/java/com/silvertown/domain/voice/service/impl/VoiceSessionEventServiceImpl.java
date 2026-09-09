@@ -1,12 +1,15 @@
 package com.silvertown.domain.voice.service.impl;
 
 import com.silvertown.domain.voice.dto.VoiceReplayPayloadResponse;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationSessionStateStore;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationPolicy;
 import com.silvertown.domain.voice.dto.VoiceSessionEventRequest;
 import com.silvertown.domain.voice.dto.VoiceSessionEventResponse;
 import com.silvertown.domain.voice.enums.DialogueStep;
 import com.silvertown.domain.voice.enums.SttMode;
 import com.silvertown.domain.voice.enums.VoiceFlowType;
 import com.silvertown.domain.voice.enums.VoiceSessionEventType;
+import com.silvertown.domain.voice.enums.VoiceAdaptationSignal;
 import com.silvertown.domain.voice.enums.VoiceSessionStatus;
 import com.silvertown.domain.voice.mapper.DialogueTurnMapper;
 import com.silvertown.domain.voice.mapper.VoiceSessionMapper;
@@ -30,7 +33,18 @@ public class VoiceSessionEventServiceImpl implements VoiceSessionEventService {
     private final VoiceSessionMapper voiceSessionMapper;
     private final DialogueTurnMapper dialogueTurnMapper;
     private final VoiceProgressPromptFactory voiceProgressPromptFactory;
+    private final VoiceAdaptationSessionStateStore voiceAdaptationSessionStateStore;
     private final Clock clock;
+
+    /** Compatibility constructor retained for focused unit tests that do not load Spring. */
+    public VoiceSessionEventServiceImpl(
+            VoiceSessionMapper voiceSessionMapper,
+            DialogueTurnMapper dialogueTurnMapper,
+            VoiceProgressPromptFactory voiceProgressPromptFactory,
+            Clock clock) {
+        this(voiceSessionMapper, dialogueTurnMapper, voiceProgressPromptFactory,
+                new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy()), clock);
+    }
 
     @Override
     @Transactional
@@ -66,6 +80,10 @@ public class VoiceSessionEventServiceImpl implements VoiceSessionEventService {
             throw new BusinessException(ErrorCode.VOICE_SESSION_NOT_FOUND);
         }
         VoiceReplayPayloadResponse replayPayload = voiceProgressPromptFactory.replayPayload(replaySource(target));
+        voiceAdaptationSessionStateStore.recordSignals(
+                voiceSession.getSessionId(),
+                DialogueStep.valueOf(voiceSession.getCurrentStep()),
+                java.util.Set.of(VoiceAdaptationSignal.REPLAY));
         return new VoiceSessionEventResponse(
                 DialogueStep.valueOf(voiceSession.getCurrentStep()), null, replayPayload);
     }

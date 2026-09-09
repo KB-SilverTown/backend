@@ -63,11 +63,17 @@ public class VoiceAdaptationPolicy {
                 || signals.contains(VoiceAdaptationSignal.LOW_STT_CONFIDENCE)) {
             return supportCurrentStep(state, currentDecisionStep);
         }
+        if (signals.contains(VoiceAdaptationSignal.REPEATED_REASK)) {
+            return supportCurrentStep(state, currentDecisionStep);
+        }
         if (containsSupportSignal(signals)) {
             return supportFromBehaviorSignal(state, currentDecisionStep);
         }
         if (signals.contains(VoiceAdaptationSignal.FASTER_REQUEST)) {
             return compactCurrentSession(state, currentDecisionStep);
+        }
+        if (signals.contains(VoiceAdaptationSignal.DEFAULT_SPEED_REQUEST)) {
+            return standardCurrentSession(state, currentDecisionStep);
         }
         if (signals.contains(VoiceAdaptationSignal.RESPONSE_RENDERED)) {
             return consumeNextResponseSupport(state, currentDecisionStep);
@@ -139,6 +145,16 @@ public class VoiceAdaptationPolicy {
                 0);
     }
 
+    private VoiceAdaptationState standardCurrentSession(
+            VoiceAdaptationState state, DialogueStep currentDecisionStep) {
+        return state.transition(
+                VoiceGuidanceMode.STANDARD,
+                GuidanceScope.CURRENT_SESSION,
+                state.supportSignalCount(),
+                currentDecisionStep,
+                0);
+    }
+
     private VoiceAdaptationState consumeNextResponseSupport(
             VoiceAdaptationState state, DialogueStep currentDecisionStep) {
         if (state.mode() != VoiceGuidanceMode.SUPPORT
@@ -179,8 +195,7 @@ public class VoiceAdaptationPolicy {
 
     private boolean containsSupportSignal(Set<VoiceAdaptationSignal> signals) {
         return signals.contains(VoiceAdaptationSignal.REPLAY)
-                || signals.contains(VoiceAdaptationSignal.FIRST_SILENCE)
-                || signals.contains(VoiceAdaptationSignal.REPEATED_REASK);
+                || signals.contains(VoiceAdaptationSignal.FIRST_SILENCE);
     }
 
     private BigDecimal rateDelta(VoiceGuidanceMode mode) {

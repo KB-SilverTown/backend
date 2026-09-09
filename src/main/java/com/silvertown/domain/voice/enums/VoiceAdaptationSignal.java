@@ -9,6 +9,7 @@ public enum VoiceAdaptationSignal {
     FIRST_SILENCE,
     REPEATED_REASK,
     FASTER_REQUEST,
+    DEFAULT_SPEED_REQUEST,
     NORMAL_ADVANCE,
     RESPONSE_RENDERED
 }
