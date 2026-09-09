@@ -101,7 +101,7 @@ class AuthServiceImplTest {
     assertEquals(userId, response.getUserId());
     assertEquals("senior01", response.getLoginId());
     assertEquals("홍길동", response.getName());
-    assertEquals("010-1234-5678", response.getPhone());
+    assertEquals("010-****-5678", response.getPhoneMasked());
     assertEquals("06234", response.getPostalCode());
     assertEquals("서울특별시 강남구 테헤란로 1", response.getAddress());
     assertEquals("101호", response.getDetailAddress());

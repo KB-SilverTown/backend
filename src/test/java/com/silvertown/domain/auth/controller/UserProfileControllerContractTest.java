@@ -39,7 +39,7 @@ class UserProfileControllerContractTest {
         USER_ID,
         "senior01",
         "홍길동",
-        "010-1234-5678",
+        "010-****-5678",
         "06234",
         "서울특별시 강남구 테헤란로 1",
         "101호"));
@@ -65,9 +65,10 @@ class UserProfileControllerContractTest {
     JsonNode response = objectMapper.readTree(result.getResponse().getContentAsByteArray());
     assertEquals(USER_ID.toString(), response.get("userId").asText());
     assertEquals("홍길동", response.get("name").asText());
-    assertEquals("010-1234-5678", response.get("phone").asText());
+    assertEquals("010-****-5678", response.get("phoneMasked").asText());
     assertEquals("서울특별시 강남구 테헤란로 1", response.get("address").asText());
     assertFalse(response.has("residentRegistrationNumber"));
+    assertFalse(response.has("phone"));
     assertFalse(response.has("accountNumber"));
     assertFalse(response.has("emergencyContact"));
   }
