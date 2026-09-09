@@ -83,11 +83,12 @@ public class VoiceAdaptationPolicy {
         if (state.currentDecisionStep() == currentDecisionStep) {
             return state;
         }
-        if (state.mode() == VoiceGuidanceMode.COMPACT) {
+        if (state.scope() == GuidanceScope.CURRENT_SESSION
+                && state.mode() != VoiceGuidanceMode.STANDARD) {
             return state.transition(
-                    VoiceGuidanceMode.COMPACT,
+                    state.mode(),
                     GuidanceScope.CURRENT_SESSION,
-                    0,
+                    state.supportSignalCount(),
                     currentDecisionStep,
                     0);
         }
