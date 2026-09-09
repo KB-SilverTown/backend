@@ -51,6 +51,7 @@ class VoiceStreamWebSocketHandlerTest {
     private static final String FIRST_TURN_ID = "20000000-0000-0000-0000-000000000001";
     private static final String SECOND_TURN_ID = "20000000-0000-0000-0000-000000000002";
     private static final long DEFAULT_RESUME_GRACE_MILLIS = 10_000L;
+    private static final long DEFAULT_FINAL_RESULT_TIMEOUT_MILLIS = 10_000L;
     private static final int MAX_PCM_FRAME_BYTES = 64 * 1024;
 
     private VoiceSessionService voiceSessionService;
@@ -131,6 +132,39 @@ class VoiceStreamWebSocketHandlerTest {
                 .orElseThrow();
         org.junit.jupiter.api.Assertions.assertEquals("SPEECH_RECOGNITION_FAILED", payload.path("code").asText());
         org.junit.jupiter.api.Assertions.assertTrue(payload.path("retryable").asBoolean());
+    }
+
+    @Test
+    void convertsAzureNoMatchIntoARetryableVoiceStreamError() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        ArgumentCaptor<AzureSpeechRecognitionListener> listener =
+                ArgumentCaptor.forClass(AzureSpeechRecognitionListener.class);
+        when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(session(VoiceSessionStatus.LISTENING));
+        when(azureSpeechClient.open(listener.capture())).thenReturn(stream);
+
+        handler.handleMessage(session, start(FIRST_TURN_ID));
+        listener.getValue().onNoMatch();
+
+        verify(voiceStreamLifecycleService, timeout(1_000))
+                .cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        verify(stream, timeout(1_000)).close();
+        assertError(session, "SPEECH_RECOGNITION_FAILED", true);
+    }
+
+    @Test
+    void sendsAnErrorWhenAzureNeverProvidesAFinalResultAfterStop() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        handler = newHandler(DEFAULT_RESUME_GRACE_MILLIS, 20);
+        when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(session(VoiceSessionStatus.LISTENING));
+        when(azureSpeechClient.open(any())).thenReturn(stream);
+
+        handler.handleMessage(session, start(FIRST_TURN_ID));
+        handler.handleMessage(session, stop(FIRST_TURN_ID));
+
+        verify(voiceStreamLifecycleService, timeout(1_000))
+                .cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        verify(stream, timeout(1_000)).close();
+        assertError(session, "SPEECH_RECOGNITION_FAILED", true);
     }
 
     @Test
@@ -651,13 +685,18 @@ class VoiceStreamWebSocketHandlerTest {
     }
 
     private VoiceStreamWebSocketHandler newHandler(long resumeGraceMillis) {
+        return newHandler(resumeGraceMillis, DEFAULT_FINAL_RESULT_TIMEOUT_MILLIS);
+    }
+
+    private VoiceStreamWebSocketHandler newHandler(long resumeGraceMillis, long finalResultTimeoutMillis) {
         return new VoiceStreamWebSocketHandler(
                 voiceSessionService,
                 voiceStreamLifecycleService,
                 voiceTurnService,
                 azureSpeechClient,
                 new ObjectMapper(),
-                resumeGraceMillis);
+                resumeGraceMillis,
+                finalResultTimeoutMillis);
     }
 
     private void await(CountDownLatch latch) {
