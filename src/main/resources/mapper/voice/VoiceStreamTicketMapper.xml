@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.silvertown.domain.voice.mapper.VoiceStreamTicketMapper">
+
+    <resultMap id="voiceStreamTicketResultMap" type="com.silvertown.domain.voice.vo.VoiceStreamTicketVo">
+        <id property="ticketId" column="ticket_id"/>
+        <result property="ticketHash" column="ticket_hash"/>
+        <result property="userId" column="user_id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="expiresAt" column="expires_at"/>
+        <result property="usedAt" column="used_at"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.silvertown.domain.voice.vo.VoiceStreamTicketVo">
+        INSERT INTO voice_stream_ticket (
+            ticket_id,
+            ticket_hash,
+            user_id,
+            session_id,
+            expires_at,
+            used_at,
+            created_at
+        ) VALUES (
+            #{ticketId, jdbcType=CHAR},
+            #{ticketHash},
+            #{userId, jdbcType=CHAR},
+            #{sessionId, jdbcType=CHAR},
+            #{expiresAt, jdbcType=TIMESTAMP},
+            #{usedAt, jdbcType=TIMESTAMP},
+            #{createdAt, jdbcType=TIMESTAMP}
+        )
+    </insert>
+
+    <select id="findUnusedUnexpiredByHash" resultMap="voiceStreamTicketResultMap">
+        SELECT
+            ticket_id,
+            ticket_hash,
+            user_id,
+            session_id,
+            expires_at,
+            used_at,
+            created_at
+        FROM voice_stream_ticket
+        WHERE ticket_hash = #{ticketHash}
+          AND used_at IS NULL
+          AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
+    </select>
+
+    <update id="consumeIfUnusedAndUnexpired">
+        UPDATE voice_stream_ticket
+        SET used_at = #{usedAt, jdbcType=TIMESTAMP}
+        WHERE ticket_id = #{ticketId, jdbcType=CHAR}
+          AND used_at IS NULL
+          AND expires_at &gt; #{now, jdbcType=TIMESTAMP}
+    </update>
+</mapper>
