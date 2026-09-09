@@ -21,10 +21,14 @@ import com.silvertown.domain.recipient.service.RecipientService;
 import com.silvertown.domain.risk.service.RiskScoreService;
 import com.silvertown.domain.transfer.service.TransferService;
 import com.silvertown.domain.voice.amount.KoreanAmountCandidateGenerator;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationPolicy;
+import com.silvertown.domain.voice.adaptation.VoiceAdaptationSessionStateStore;
+import com.silvertown.domain.voice.adaptation.VoiceGuidanceCommandParser;
 import com.silvertown.domain.voice.dto.SpeechTokenResponse;
 import com.silvertown.domain.voice.enums.DialogueStep;
 import com.silvertown.domain.voice.enums.SttMode;
 import com.silvertown.domain.voice.enums.VoiceFlowType;
+import com.silvertown.domain.voice.enums.VoiceGuidanceMode;
 import com.silvertown.domain.voice.enums.VoiceSessionEntryPoint;
 import com.silvertown.domain.voice.enums.VoiceIntent;
 import com.silvertown.domain.voice.enums.VoiceNextAction;
@@ -40,11 +44,14 @@ import com.silvertown.domain.voice.service.MobileBranchVoiceResponseResolver;
 import com.silvertown.domain.voice.service.SpeechTokenService;
 import com.silvertown.domain.voice.service.VoiceProgressPromptFactory;
 import com.silvertown.domain.voice.service.VoiceInteractionCardIssuer;
+import com.silvertown.domain.voice.service.VoiceGuidanceSettingsService;
+import com.silvertown.domain.voice.service.VoiceGuidanceTemplateRenderer;
 import com.silvertown.domain.voice.service.VoiceSessionPromptProvider;
 import com.silvertown.domain.voice.service.VoiceSsmlRenderer;
 import com.silvertown.domain.voice.service.VoiceTurnAnalysisPort;
 import com.silvertown.domain.voice.service.VoiceTurnAnalysisResult;
 import com.silvertown.domain.voice.service.impl.VoiceSessionServiceImpl;
+import com.silvertown.domain.voice.service.impl.VoiceSessionEventServiceImpl;
 import com.silvertown.domain.voice.service.impl.VoiceSettingsServiceImpl;
 import com.silvertown.domain.voice.service.impl.VoiceTurnServiceImpl;
 import com.silvertown.domain.voice.service.impl.VoiceTransferOrchestratorImpl;
@@ -107,6 +114,7 @@ class VoiceApiIntegrationTest {
     private PooledDataSource dataSource;
     private VoiceSessionMapper voiceSessionMapper;
     private DialogueTurnMapper dialogueTurnMapper;
+    private VoiceAdaptationSessionStateStore adaptationStateStore;
     private JwtTokenProvider jwtTokenProvider;
     private MockMvc mockMvc;
 
@@ -122,6 +130,10 @@ class VoiceApiIntegrationTest {
         SqlSessionTemplate sqlSessionTemplate = new SqlSessionTemplate(sessionFactory);
         DataSourceTransactionManager transactionManager = new DataSourceTransactionManager(dataSource);
         VoiceTurnAnalysisPort voiceTurnAnalysisPort = command -> accountInquiryAnalysis();
+        adaptationStateStore = new VoiceAdaptationSessionStateStore(new VoiceAdaptationPolicy());
+        VoiceGuidanceSettingsService voiceGuidanceSettingsService =
+                new VoiceGuidanceSettingsService(userVoiceSettingsMapper);
+        VoiceSsmlRenderer voiceSsmlRenderer = new VoiceSsmlRenderer(userVoiceSettingsMapper);
         AccountService accountService = org.mockito.Mockito.mock(AccountService.class);
         org.mockito.Mockito.when(accountService.getAccounts(USER_ID)).thenReturn(java.util.List.of(accountResponse()));
         VoiceTurnServiceImpl voiceTurnService = new VoiceTurnServiceImpl(
@@ -129,7 +141,7 @@ class VoiceApiIntegrationTest {
                 sqlSessionTemplate.getMapper(DialogueTurnMapper.class),
                 voiceTurnAnalysisPort,
                 new VoiceProgressPromptFactory(objectMapper),
-                new VoiceSsmlRenderer(userVoiceSettingsMapper),
+                voiceSsmlRenderer,
                 org.mockito.Mockito.mock(KoreanAmountCandidateGenerator.class),
                 testOrchestrator(),
                 new VoiceInteractionCardIssuer(
@@ -140,7 +152,11 @@ class VoiceApiIntegrationTest {
                 new MobileBranchVoiceResponseResolver(objectMapper),
                 objectMapper,
                 CLOCK,
-                transactionManager);
+                transactionManager,
+                new VoiceGuidanceCommandParser(),
+                adaptationStateStore,
+                new VoiceGuidanceTemplateRenderer(),
+                voiceGuidanceSettingsService);
         AuthenticatedUserId authenticatedUserId = new AuthenticatedUserId();
         SpeechTokenService speechTokenService = () -> new SpeechTokenResponse(
                 "test-speech-token", "koreacentral",
@@ -169,8 +185,18 @@ class VoiceApiIntegrationTest {
                                         org.mockito.Mockito.mock(VoiceInteractionCardMapper.class),
                                         dialogueTurnMapper,
                                         new VoiceSessionPromptProvider(),
-                                        new VoiceSsmlRenderer(userVoiceSettingsMapper),
+                                        voiceSsmlRenderer,
+                                        adaptationStateStore,
+                                        voiceGuidanceSettingsService,
                                         objectMapper,
+                                        CLOCK),
+                                authenticatedUserId),
+                        new VoiceSessionEventController(
+                                new VoiceSessionEventServiceImpl(
+                                        voiceSessionMapper,
+                                        dialogueTurnMapper,
+                                        new VoiceProgressPromptFactory(objectMapper),
+                                        adaptationStateStore,
                                         CLOCK),
                                 authenticatedUserId),
                         new VoiceTurnController(voiceTurnService, authenticatedUserId))
@@ -408,6 +434,35 @@ class VoiceApiIntegrationTest {
                 .andExpect(status().isOk()));
         assertEquals("SPEAKING", speakingSession.get("status").asText());
         assertEquals("AWAITING_INPUT", speakingSession.get("currentStep").asText());
+    }
+
+    @Test
+    void appliesReplaySupportToExactlyTheFollowingNewTurn() throws Exception {
+        JsonNode createdSession = response(mockMvc.perform(post("/api/voice/sessions")
+                        .header("Authorization", authorizationFor(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"entryPoint\":\"GENERAL_FINANCE\"}"))
+                .andExpect(status().isCreated()));
+        String sessionId = createdSession.get("sessionId").asText();
+        String initialAiTurnId = dialogueTurnMapper.findBySessionIdAndSequenceNo(sessionId, 1).getTurnId();
+
+        response(mockMvc.perform(post("/api/voice/sessions/{sessionId}/events", sessionId)
+                        .header("Authorization", authorizationFor(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"eventType\":\"REPLAY\",\"turnId\":\"" + initialAiTurnId + "\"}"))
+                .andExpect(status().isOk()));
+
+        String turnId = UUID.randomUUID().toString();
+        JsonNode nextTurn = response(mockMvc.perform(post("/api/voice/sessions/{sessionId}/turns", sessionId)
+                        .header("Authorization", authorizationFor(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"turnId\":\"" + turnId + "\","
+                                + "\"transcript\":\"내 계좌 잔액을 알려줘\","
+                                + "\"sttConfidence\":0.96,\"inputType\":\"VOICE\"}"))
+                .andExpect(status().isOk()));
+
+        assertTrue(nextTurn.get("ttsSsml").asText().contains("rate=\"1.00\""));
+        assertEquals(VoiceGuidanceMode.STANDARD, adaptationStateStore.stateOf(sessionId).mode());
     }
 
     @Test
