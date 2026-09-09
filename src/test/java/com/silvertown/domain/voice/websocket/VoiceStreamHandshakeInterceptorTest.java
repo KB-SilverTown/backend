@@ -30,7 +30,9 @@ class VoiceStreamHandshakeInterceptorTest {
     @BeforeEach
     void setUp() {
         voiceStreamTicketService = Mockito.mock(VoiceStreamTicketService.class);
-        interceptor = new VoiceStreamHandshakeInterceptor(voiceStreamTicketService);
+        interceptor = new VoiceStreamHandshakeInterceptor(
+                voiceStreamTicketService,
+                new VoiceStreamWebSocketPolicy("http://localhost:5173,https://localhost"));
     }
 
     @Test
