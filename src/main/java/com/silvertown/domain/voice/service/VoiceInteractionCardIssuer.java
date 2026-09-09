@@ -76,6 +76,7 @@ public class VoiceInteractionCardIssuer {
     private ArrayNode items(String type, JsonNode displayCard) {
         ArrayNode result = objectMapper.createArrayNode();
         if ("RECIPIENT_CANDIDATES".equals(type)) {
+            JsonNode pendingAmountCandidates = displayCard.path("pendingAmountCandidates");
             for (JsonNode item : displayCard.path("items")) {
                 if (!item.isObject()) {
                     continue;
@@ -87,6 +88,9 @@ public class VoiceInteractionCardIssuer {
                 }
                 copy.put("id", id);
                 copy.remove("isFocused");
+                if (pendingAmountCandidates.isArray() && !pendingAmountCandidates.isEmpty()) {
+                    copy.set("pendingAmountCandidates", pendingAmountCandidates.deepCopy());
+                }
                 result.add(copy);
             }
             return result;
@@ -146,10 +150,19 @@ public class VoiceInteractionCardIssuer {
             display.put("focusedItemId", card.getFocusedItemId());
             display.set("actions", objectMapper.readTree(card.getActions()));
             ArrayNode items = display.putArray("items");
+            JsonNode pendingAmountCandidates = null;
             for (JsonNode item : objectMapper.readTree(card.getCandidateItems())) {
                 ObjectNode copy = item.deepCopy();
                 copy.put("isFocused", Objects.equals(card.getFocusedItemId(), copy.path("id").asText()));
+                if (pendingAmountCandidates == null
+                        && copy.path("pendingAmountCandidates").isArray()
+                        && !copy.path("pendingAmountCandidates").isEmpty()) {
+                    pendingAmountCandidates = copy.path("pendingAmountCandidates").deepCopy();
+                }
                 items.add(copy);
+            }
+            if (pendingAmountCandidates != null) {
+                display.set("pendingAmountCandidates", pendingAmountCandidates);
             }
             return display;
         } catch (JsonProcessingException exception) {
