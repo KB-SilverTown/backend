@@ -106,7 +106,7 @@ class VoiceStreamWebSocketHandlerTest {
         when(azureSpeechClient.open(listener.capture())).thenReturn(stream);
 
         handler.handleMessage(session, start(FIRST_TURN_ID));
-        listener.getValue().onFailure();
+        listener.getValue().onFailure("CANCELLED_ConnectionFailure");
 
         verify(stream, timeout(1_000)).stop();
         verify(stream, timeout(1_000)).close();
