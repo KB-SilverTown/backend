@@ -803,6 +803,50 @@ class VoiceTurnServiceImplTest {
     }
 
     @Test
+    void streamingGuidanceCommandPreservesTheCommandAndUpdatesTheNextSessionStep() {
+        VoiceSessionVo claimed = processingFinalApprovalSession();
+        claimed.setActiveInputTurnId(TURN_ID);
+        claimed.setLifecycleGeneration(4);
+        VoiceSessionVo current = processingFinalApprovalSession();
+        current.setActiveInputTurnId(TURN_ID);
+        current.setLifecycleGeneration(4);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(claimed, current);
+        when(voiceInteractionCardMapper.findBySessionId(SESSION_ID)).thenReturn(transferReadbackCard());
+        when(transferService.get(
+                UUID.fromString(USER_ID), UUID.fromString("70000000-0000-0000-0000-000000000001")))
+                .thenReturn(canonicalReadback());
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(6, 7);
+        when(voiceSessionMapper.completeStreamTurnWithAi(
+                        eq(USER_ID),
+                        eq(SESSION_ID),
+                        eq(TURN_ID),
+                        eq(4L),
+                        any(),
+                        eq(DialogueStep.WAITING_FINAL_APPROVAL.name()),
+                        any()))
+                .thenReturn(1);
+
+        VoiceTurnResponse response = service.processAzureTransferFinal(
+                USER_ID,
+                SESSION_ID,
+                TURN_ID,
+                4,
+                new AzureSpeechDetailedResult("천천히 말해줘", new BigDecimal("0.95"), List.of()));
+
+        assertEquals(DialogueStep.WAITING_FINAL_APPROVAL, response.getState());
+        assertEquals("ASK_FINAL_APPROVAL", response.getNextAction());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+        verify(voiceSessionMapper).completeStreamTurnWithAi(
+                eq(USER_ID),
+                eq(SESSION_ID),
+                eq(TURN_ID),
+                eq(4L),
+                any(),
+                eq(DialogueStep.WAITING_FINAL_APPROVAL.name()),
+                any());
+    }
+
+    @Test
     void guidanceCommandDuringRiskCheckDoesNotProcessTheCommandAsARiskAnswer() throws Exception {
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
                 .thenReturn(riskCheckSession(), processingRiskCheckSession());
