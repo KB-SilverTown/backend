@@ -59,4 +59,27 @@ class VoiceInteractionCardIssuerTest {
         assertNull(captor.getValue().getFocusedItemId());
         assertTrue(issued.path("focusedItemId").isNull());
     }
+
+    @Test
+    void keepsValidatedAmountCandidatesWithTheRecipientCardUntilRecipientConfirmation() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        VoiceInteractionCardMapper mapper = org.mockito.Mockito.mock(VoiceInteractionCardMapper.class);
+        when(mapper.insert(any(VoiceInteractionCardVo.class))).thenReturn(1);
+        VoiceInteractionCardIssuer issuer = new VoiceInteractionCardIssuer(mapper, objectMapper);
+        JsonNode displayCard = objectMapper.readTree("""
+                {"type":"RECIPIENT_CANDIDATES","pendingAmountCandidates":[50000],"items":[
+                  {"recipientId":"50000000-0000-0000-0000-000000000001","displayName":"김철수"}]}
+                """);
+
+        JsonNode issued = issuer.issueIfInteractive(
+                "10000000-0000-0000-0000-000000000001",
+                "20000000-0000-0000-0000-000000000001",
+                displayCard);
+
+        ArgumentCaptor<VoiceInteractionCardVo> captor = ArgumentCaptor.forClass(VoiceInteractionCardVo.class);
+        verify(mapper).insert(captor.capture());
+        assertEquals(50000L, objectMapper.readTree(captor.getValue().getCandidateItems())
+                .get(0).path("pendingAmountCandidates").get(0).longValue());
+        assertEquals(50000L, issued.path("pendingAmountCandidates").get(0).longValue());
+    }
 }
