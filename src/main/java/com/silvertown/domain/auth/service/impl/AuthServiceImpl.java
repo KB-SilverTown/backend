@@ -172,7 +172,7 @@ public class AuthServiceImpl implements AuthService {
         userId,
         profile.getLoginId(),
         profile.getName(),
-        formatPhoneNumber(sensitiveDataCrypto.decrypt(profile.getPhoneEncrypted())),
+        maskPhoneNumber(sensitiveDataCrypto.decrypt(profile.getPhoneEncrypted())),
         profile.getPostalCode(),
         profile.getAddress(),
         profile.getDetailAddress());
@@ -265,16 +265,11 @@ public class AuthServiceImpl implements AuthService {
     }
   }
 
-  private String formatPhoneNumber(String phone) {
+  private String maskPhoneNumber(String phone) {
     String digits = phone.replaceAll("\\D", "");
     if (!digits.matches("01[016789]\\d{7,8}")) {
-      return phone;
+      return "****";
     }
-    int middleLength = digits.length() - 7;
-    return digits.substring(0, 3)
-        + "-"
-        + digits.substring(3, 3 + middleLength)
-        + "-"
-        + digits.substring(3 + middleLength);
+    return digits.substring(0, 3) + "-****-" + digits.substring(digits.length() - 4);
   }
 }
