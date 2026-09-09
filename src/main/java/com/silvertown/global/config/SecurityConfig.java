@@ -7,6 +7,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
@@ -47,6 +48,10 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
             "/swagger-resources/**",
             "/webjars/**",
             "/resources/**")
+        .permitAll()
+        // 브라우저 WebSocket은 Authorization 헤더를 보낼 수 없다. 이 경로는
+        // HandshakeInterceptor가 일회용 stream ticket과 Origin을 검증한다.
+        .antMatchers(HttpMethod.GET, "/api/voice/sessions/*/stream")
         .permitAll()
         .anyRequest().authenticated()
         .and()

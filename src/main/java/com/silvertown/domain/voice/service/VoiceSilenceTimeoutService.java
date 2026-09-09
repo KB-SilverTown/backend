@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.silvertown.domain.voice.enums.DialogueStep;
+import com.silvertown.domain.voice.enums.SttMode;
 import com.silvertown.domain.voice.enums.VoiceAdaptationSignal;
 import com.silvertown.domain.voice.adaptation.VoiceAdaptationSessionStateStore;
 import com.silvertown.domain.voice.adaptation.VoiceAdaptationPolicy;
@@ -127,6 +128,12 @@ public class VoiceSilenceTimeoutService {
 
     private boolean isActiveInteractiveSession(VoiceSessionVo voiceSession) {
         if (voiceSession == null || voiceSession.getExpiresAt() == null) {
+            return false;
+        }
+        // 송금 BACKEND_STREAM은 프론트가 실제 TTS 재생 종료 뒤 15초를 잰다.
+        // 서버의 turn 생성 시각을 기준으로 함께 재면 사용자가 듣는 대기시간이
+        // 짧아지고, 동일 세션에서 두 개의 재안내가 경쟁한다.
+        if (SttMode.BACKEND_STREAM.name().equals(voiceSession.getSttMode())) {
             return false;
         }
         return (VoiceSessionStatus.LISTENING.name().equals(voiceSession.getStatus())
