@@ -951,6 +951,30 @@ class VoiceTurnServiceImplTest {
     }
 
     @Test
+    void acceptsTextGuidanceCommandsOnBackendStreamTransferSessions() throws Exception {
+        VoiceSessionVo listening = backendTransferSession();
+        listening.setCurrentStep(DialogueStep.AWAITING_CONTINUATION.name());
+        VoiceSessionVo processing = processingBackendTransferSession();
+        processing.setCurrentStep(DialogueStep.AWAITING_CONTINUATION.name());
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(listening, processing);
+        when(voiceSessionMapper.claimForTurn(eq(USER_ID), eq(SESSION_ID), any())).thenReturn(1);
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(2, 3);
+        when(voiceSessionMapper.completeTurn(
+                USER_ID, SESSION_ID, DialogueStep.AWAITING_CONTINUATION.name())).thenReturn(1);
+
+        VoiceTurnResponse response = service.process(
+                USER_ID,
+                SESSION_ID,
+                request("천천히 말해줘", BigDecimal.ONE, DialogueInputType.TEXT));
+
+        assertEquals(DialogueStep.AWAITING_CONTINUATION, response.getState());
+        assertEquals("ASK_CONTINUATION", response.getNextAction());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+        verify(dialogueTurnMapper, never()).findLatestBusinessAiTurn(SESSION_ID);
+    }
+
+    @Test
     void blocksGuidanceCommandsOnTheRawBackendStreamTransferPath() throws Exception {
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
                 .thenReturn(backendTransferSession());
