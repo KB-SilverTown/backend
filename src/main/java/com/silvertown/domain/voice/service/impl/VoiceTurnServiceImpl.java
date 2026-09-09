@@ -19,6 +19,7 @@ import com.silvertown.domain.voice.adaptation.VoiceAdaptationPolicy;
 import com.silvertown.domain.voice.dto.VoiceTurnRequest;
 import com.silvertown.domain.voice.dto.VoiceTurnResponse;
 import com.silvertown.domain.voice.enums.DialogueStep;
+import com.silvertown.domain.voice.enums.SttMode;
 import com.silvertown.domain.voice.enums.VoiceFlowType;
 import com.silvertown.domain.voice.enums.VoiceIntent;
 import com.silvertown.domain.voice.enums.VoiceNextAction;
@@ -149,6 +150,41 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         });
     }
 
+    @Override
+    public VoiceTurnResponse processAzureTransferFinal(
+            String userId,
+            String sessionId,
+            String inputTurnId,
+            long lifecycleGeneration,
+            AzureSpeechDetailedResult result) {
+        if (result == null || isBlank(result.transcript())) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+        BigDecimal confidence = result.confidence() == null ? BigDecimal.ZERO : result.confidence();
+        VoiceTurnRequest request = VoiceTurnRequest.azureFinal(inputTurnId, result.transcript(), confidence);
+        TurnClaim claim = claimStreamFinal(userId, sessionId, request, lifecycleGeneration);
+        try {
+            VoiceGuidanceCommand command = voiceGuidanceCommandParser.parse(request.getTranscript()).orElse(null);
+            VoiceTurnAnalysisResult resolved;
+            if (command != null) {
+                resolved = adaptationCommandResponse(request, claim.voiceSession());
+            } else {
+                VoiceTurnAnalysisResult contextual = resolveVoiceCardContext(request, claim.voiceSession());
+                resolved = contextual != null
+                        ? contextual
+                        : analyzeAzureTransferFinal(request, result, claim.voiceSession());
+            }
+            VoiceTurnAnalysisResult analysis = enrichRecipientCandidates(claim.voiceSession(), resolved);
+            VoiceTurnResponse response = persistAndCompleteTurn(
+                    userId, sessionId, request, claim.voiceSession(), analysis, command, lifecycleGeneration);
+            completeAdaptationSignalHandling(claim.voiceSession(), response);
+            return response;
+        } catch (RuntimeException exception) {
+            cancelStreamClaim(userId, sessionId, inputTurnId, lifecycleGeneration);
+            throw exception;
+        }
+    }
+
     private VoiceTurnResponse processInternal(
             String userId,
             String sessionId,
@@ -170,7 +206,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                     : adaptationCommandResponse(request, claim.voiceSession());
             VoiceTurnAnalysisResult analysis = enrichRecipientCandidates(claim.voiceSession(), resolved);
             VoiceTurnResponse response = persistAndCompleteTurn(
-                    userId, sessionId, request, claim.voiceSession(), analysis, command);
+                    userId, sessionId, request, claim.voiceSession(), analysis, command, null);
             completeAdaptationSignalHandling(claim.voiceSession(), response);
             return response;
         } catch (DuplicateKeyException exception) {
@@ -880,19 +916,71 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         });
     }
 
+    /**
+     * The WebSocket handler has already changed the stream lifecycle to PROCESSING.  Re-checking
+     * the input turn and generation here prevents a late Azure callback from creating any turn,
+     * card, or transfer side effect after BARGE_IN has won the row lock.
+     */
+    private TurnClaim claimStreamFinal(
+            String userId, String sessionId, VoiceTurnRequest request, long lifecycleGeneration) {
+        return inTransaction(() -> {
+            VoiceSessionVo voiceSession = findOwnedSessionForTurn(userId, sessionId);
+            if (voiceSession == null) {
+                throw new BusinessException(ErrorCode.VOICE_SESSION_NOT_FOUND);
+            }
+            expireSessionIfNeeded(userId, sessionId, voiceSession);
+            if (VoiceSessionStatus.valueOf(voiceSession.getStatus()) != VoiceSessionStatus.PROCESSING
+                    || !Objects.equals(voiceSession.getActiveInputTurnId(), request.getTurnId())
+                    || voiceSession.getLifecycleGeneration() != lifecycleGeneration
+                    || voiceSession.getActiveAiTurnId() != null
+                    || VoiceFlowType.valueOf(voiceSession.getFlowType()) != VoiceFlowType.TRANSFER
+                    || SttMode.valueOf(voiceSession.getSttMode()) != SttMode.BACKEND_STREAM) {
+                throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
+            }
+            return TurnClaim.claimed(voiceSession);
+        });
+    }
+
+    private void cancelStreamClaim(
+            String userId, String sessionId, String inputTurnId, long lifecycleGeneration) {
+        try {
+            inTransaction(() -> {
+                VoiceSessionVo voiceSession = findOwnedSessionForTurn(userId, sessionId);
+                if (voiceSession != null
+                        && (VoiceSessionStatus.valueOf(voiceSession.getStatus()) == VoiceSessionStatus.LISTENING
+                                || VoiceSessionStatus.valueOf(voiceSession.getStatus())
+                                        == VoiceSessionStatus.PROCESSING)
+                        && Objects.equals(voiceSession.getActiveInputTurnId(), inputTurnId)
+                        && voiceSession.getLifecycleGeneration() == lifecycleGeneration
+                        && voiceSession.getActiveAiTurnId() == null) {
+                    voiceSessionMapper.cancelActiveInputTurn(
+                            userId, sessionId, inputTurnId, lifecycleGeneration, LocalDateTime.now(clock));
+                }
+                return null;
+            });
+        } catch (RuntimeException ignored) {
+            // The cancelling BARGE_IN may already have completed the same lifecycle transition.
+        }
+    }
+
     private VoiceTurnResponse persistAndCompleteTurn(
             String userId,
             String sessionId,
             VoiceTurnRequest request,
             VoiceSessionVo claimedSession,
             VoiceTurnAnalysisResult analysis,
-            VoiceGuidanceCommand command) {
+            VoiceGuidanceCommand command,
+            Long lifecycleGeneration) {
         return inTransaction(() -> {
             VoiceSessionVo currentSession = findOwnedSessionForTurn(userId, sessionId);
             if (currentSession == null) {
                 throw new BusinessException(ErrorCode.VOICE_SESSION_NOT_FOUND);
             }
-            if (VoiceSessionStatus.valueOf(currentSession.getStatus()) != VoiceSessionStatus.PROCESSING) {
+            if (VoiceSessionStatus.valueOf(currentSession.getStatus()) != VoiceSessionStatus.PROCESSING
+                    || (lifecycleGeneration != null
+                            && (!Objects.equals(currentSession.getActiveInputTurnId(), request.getTurnId())
+                                    || currentSession.getLifecycleGeneration() != lifecycleGeneration
+                                    || currentSession.getActiveAiTurnId() != null))) {
                 throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
             }
 
@@ -936,12 +1024,23 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 voiceGuidanceSettingsService.completeSession(
                         userId, voiceAdaptationSessionStateStore.stateOf(sessionId));
                 voiceAdaptationSessionStateStore.clear(sessionId);
-            } else if (voiceSessionMapper.completeTurn(
-                    userId, sessionId, renderedAnalysis.getNextStep().name()) != 1) {
+            } else if (lifecycleGeneration != null) {
+                if (voiceSessionMapper.completeStreamTurnWithAi(
+                        userId,
+                        sessionId,
+                        request.getTurnId(),
+                        lifecycleGeneration,
+                        aiTurn.getTurnId(),
+                        renderedAnalysis.getNextStep().name(),
+                        LocalDateTime.now(clock)) != 1) {
+                    throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
+                }
+            } else if (voiceSessionMapper.completeTurn(userId, sessionId, renderedAnalysis.getNextStep().name())
+                    != 1) {
                 throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
             }
 
-            return toResponse(sessionId, request.getTurnId(), renderedAnalysis);
+            return toResponse(sessionId, request.getTurnId(), aiTurn.getTurnId(), renderedAnalysis);
         });
     }
 
@@ -1257,10 +1356,11 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
     }
 
     private VoiceTurnResponse toResponse(
-            String sessionId, String turnId, VoiceTurnAnalysisResult analysis) {
+            String sessionId, String turnId, String aiTurnId, VoiceTurnAnalysisResult analysis) {
         return new VoiceTurnResponse(
                 sessionId,
                 turnId,
+                aiTurnId,
                 analysis.getNextStep(),
                 analysis.getIntent().name(),
                 analysis.getRequestedFunction().name(),
@@ -1284,6 +1384,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
             return new VoiceTurnResponse(
                     sessionId,
                     turnId,
+                    aiTurn.getTurnId(),
                     DialogueStep.valueOf(aiTurn.getStep()),
                     aiTurn.getIntent(),
                     storedRequestedFunction(stored),

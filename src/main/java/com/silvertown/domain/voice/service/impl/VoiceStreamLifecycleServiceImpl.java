@@ -72,26 +72,30 @@ public class VoiceStreamLifecycleServiceImpl implements VoiceStreamLifecycleServ
             throw turnConflict();
         }
         requireUpdated(voiceSessionMapper.completeStreamTurnWithAi(
-                userId, sessionId, inputTurnId, lifecycleGeneration, aiTurnId, now));
+                userId,
+                sessionId,
+                inputTurnId,
+                lifecycleGeneration,
+                aiTurnId,
+                session.getCurrentStep(),
+                now));
     }
 
     @Override
     @Transactional
-    public void interruptAiTts(
-            String userId, String sessionId, String interruptedAiTurnId, long lifecycleGeneration) {
+    public void interruptAiTts(String userId, String sessionId, String interruptedAiTurnId) {
         requireTurnId(interruptedAiTurnId);
         LocalDateTime now = LocalDateTime.now(clock);
         VoiceSessionVo session = findOwnedForUpdate(userId, sessionId);
         requireBackendTransferSession(session, now);
         requireStatus(session, VoiceSessionStatus.SPEAKING);
         if (!Objects.equals(interruptedAiTurnId, session.getActiveAiTurnId())
-                || session.getActiveInputTurnId() != null
-                || session.getLifecycleGeneration() != lifecycleGeneration) {
+                || session.getActiveInputTurnId() != null) {
             throw turnConflict();
         }
         requireUpdated(dialogueTurnMapper.markInterrupted(interruptedAiTurnId));
         requireUpdated(voiceSessionMapper.interruptActiveAiTurn(
-                userId, sessionId, interruptedAiTurnId, lifecycleGeneration, now));
+                userId, sessionId, interruptedAiTurnId, session.getLifecycleGeneration(), now));
     }
 
     @Override

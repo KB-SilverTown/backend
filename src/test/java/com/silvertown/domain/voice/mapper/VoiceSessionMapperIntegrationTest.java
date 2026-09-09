@@ -153,10 +153,17 @@ class VoiceSessionMapperIntegrationTest {
             assertEquals(1, mapper.beginStreamFinalProcessing(
                     OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, 0, STREAM_NOW));
             assertEquals(1, mapper.completeStreamTurnWithAi(
-                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, 0, aiTurnId, STREAM_NOW));
+                    OWNER_ID.toString(),
+                    SESSION_ID.toString(),
+                    inputTurnId,
+                    0,
+                    aiTurnId,
+                    "AWAITING_AMOUNT",
+                    STREAM_NOW));
 
             VoiceSessionVo speaking = mapper.findOwnedById(OWNER_ID.toString(), SESSION_ID.toString());
             assertEquals("SPEAKING", speaking.getStatus());
+            assertEquals("AWAITING_AMOUNT", speaking.getCurrentStep());
             assertNull(speaking.getActiveInputTurnId());
             assertEquals(aiTurnId, speaking.getActiveAiTurnId());
             assertEquals(0, speaking.getLifecycleGeneration());

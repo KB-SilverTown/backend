@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.silvertown.domain.voice.enums.SttMode;
+import com.silvertown.domain.voice.enums.DialogueStep;
 import com.silvertown.domain.voice.enums.VoiceFlowType;
 import com.silvertown.domain.voice.enums.VoiceSessionStatus;
 import com.silvertown.domain.voice.mapper.DialogueTurnMapper;
@@ -94,13 +95,26 @@ class VoiceStreamLifecycleServiceImplTest {
     void completesProcessingByReplacingActiveInputWithAiTurn() {
         VoiceSessionVo session = session(VoiceSessionStatus.PROCESSING, INPUT_TURN_ID, null, 3);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(session);
-        when(voiceSessionMapper.completeStreamTurnWithAi(USER_ID, SESSION_ID, INPUT_TURN_ID, 3, AI_TURN_ID, NOW))
+        when(voiceSessionMapper.completeStreamTurnWithAi(
+                        USER_ID,
+                        SESSION_ID,
+                        INPUT_TURN_ID,
+                        3,
+                        AI_TURN_ID,
+                        DialogueStep.AWAITING_INPUT.name(),
+                        NOW))
                 .thenReturn(1);
 
         service.completeAiTurn(USER_ID, SESSION_ID, INPUT_TURN_ID, 3, AI_TURN_ID);
 
         verify(voiceSessionMapper).completeStreamTurnWithAi(
-                USER_ID, SESSION_ID, INPUT_TURN_ID, 3, AI_TURN_ID, NOW);
+                USER_ID,
+                SESSION_ID,
+                INPUT_TURN_ID,
+                3,
+                AI_TURN_ID,
+                DialogueStep.AWAITING_INPUT.name(),
+                NOW);
     }
 
     @Test
@@ -110,7 +124,7 @@ class VoiceStreamLifecycleServiceImplTest {
         when(dialogueTurnMapper.markInterrupted(AI_TURN_ID)).thenReturn(1);
         when(voiceSessionMapper.interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, 3, NOW)).thenReturn(1);
 
-        service.interruptAiTts(USER_ID, SESSION_ID, AI_TURN_ID, 3);
+        service.interruptAiTts(USER_ID, SESSION_ID, AI_TURN_ID);
 
         verify(dialogueTurnMapper).markInterrupted(AI_TURN_ID);
         verify(voiceSessionMapper).interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, 3, NOW);
@@ -122,7 +136,7 @@ class VoiceStreamLifecycleServiceImplTest {
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(speaking);
 
         assertTurnConflict(() -> service.interruptAiTts(
-                USER_ID, SESSION_ID, "30000000-0000-0000-0000-000000000002", 3));
+                USER_ID, SESSION_ID, "30000000-0000-0000-0000-000000000002"));
         verify(dialogueTurnMapper, never()).markInterrupted(Mockito.anyString());
 
         VoiceSessionVo expired = session(VoiceSessionStatus.EXPIRED, null, null, 3);
@@ -154,15 +168,16 @@ class VoiceStreamLifecycleServiceImplTest {
     }
 
     @Test
-    void rejectsStaleAiInterruptionEvenWhenTheTurnIdWasReused() {
+    void interruptsTheCurrentAiTurnWithoutAClientSuppliedGeneration() {
         VoiceSessionVo newerTurn = session(VoiceSessionStatus.SPEAKING, null, AI_TURN_ID, 6);
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(newerTurn);
+        when(dialogueTurnMapper.markInterrupted(AI_TURN_ID)).thenReturn(1);
+        when(voiceSessionMapper.interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, 6, NOW)).thenReturn(1);
 
-        assertTurnConflict(() -> service.interruptAiTts(USER_ID, SESSION_ID, AI_TURN_ID, 5));
+        service.interruptAiTts(USER_ID, SESSION_ID, AI_TURN_ID);
 
-        verify(dialogueTurnMapper, never()).markInterrupted(AI_TURN_ID);
-        verify(voiceSessionMapper, never()).interruptActiveAiTurn(
-                eq(USER_ID), eq(SESSION_ID), eq(AI_TURN_ID), eq(5L), eq(NOW));
+        verify(dialogueTurnMapper).markInterrupted(AI_TURN_ID);
+        verify(voiceSessionMapper).interruptActiveAiTurn(USER_ID, SESSION_ID, AI_TURN_ID, 6, NOW);
     }
 
     @Test
@@ -191,6 +206,7 @@ class VoiceStreamLifecycleServiceImplTest {
             VoiceSessionStatus status, String activeInputTurnId, String activeAiTurnId, long generation) {
         VoiceSessionVo session = new VoiceSessionVo();
         session.setStatus(status.name());
+        session.setCurrentStep(DialogueStep.AWAITING_INPUT.name());
         session.setFlowType(VoiceFlowType.TRANSFER.name());
         session.setSttMode(SttMode.BACKEND_STREAM.name());
         session.setActiveInputTurnId(activeInputTurnId);

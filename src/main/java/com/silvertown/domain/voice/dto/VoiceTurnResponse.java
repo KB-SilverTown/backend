@@ -10,6 +10,7 @@ import lombok.Getter;
 public class VoiceTurnResponse {
     private final String sessionId;
     private final String turnId;
+    private final String aiTurnId;
     private final DialogueStep state;
     private final String intent;
     private final String requestedFunction;
@@ -37,8 +38,29 @@ public class VoiceTurnResponse {
             JsonNode draftSummary,
             String nextAction
     ) {
+        this(sessionId, turnId, null, state, intent, requestedFunction, slots, confidence, ttsText, ttsSsml,
+                displayCard, requiredSlot, draftSummary, nextAction);
+    }
+
+    public VoiceTurnResponse(
+            String sessionId,
+            String turnId,
+            String aiTurnId,
+            DialogueStep state,
+            String intent,
+            String requestedFunction,
+            Map<String, Object> slots,
+            BigDecimal confidence,
+            String ttsText,
+            String ttsSsml,
+            JsonNode displayCard,
+            JsonNode requiredSlot,
+            JsonNode draftSummary,
+            String nextAction
+    ) {
         this.sessionId = sessionId;
         this.turnId = turnId;
+        this.aiTurnId = aiTurnId;
         this.state = state;
         this.intent = intent;
         this.requestedFunction = requestedFunction;
@@ -65,7 +87,7 @@ public class VoiceTurnResponse {
             JsonNode draftSummary,
             String nextAction
     ) {
-        this(null, null, state, intent, null, slots, confidence, ttsText, ttsSsml,
+        this(null, null, null, state, intent, null, slots, confidence, ttsText, ttsSsml,
                 displayCard, requiredSlot, draftSummary, nextAction);
     }
 }

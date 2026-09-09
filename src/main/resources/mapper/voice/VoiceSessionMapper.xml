@@ -200,6 +200,7 @@
     <update id="completeStreamTurnWithAi">
         UPDATE voice_sessions
         SET status = 'SPEAKING',
+            current_step = #{currentStep},
             active_input_turn_id = NULL,
             active_ai_turn_id = #{aiTurnId, jdbcType=CHAR}
         WHERE user_id = #{userId, jdbcType=CHAR}

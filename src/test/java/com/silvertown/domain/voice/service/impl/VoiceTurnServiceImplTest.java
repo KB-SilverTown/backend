@@ -158,6 +158,7 @@ class VoiceTurnServiceImplTest {
         assertEquals("TRANSFER", response.getIntent());
         assertEquals("TRANSFER_RECIPIENT_CANDIDATES", response.getRequestedFunction());
         assertEquals("ASK_AMOUNT", response.getNextAction());
+        assertTrue(response.getAiTurnId() != null && !response.getAiTurnId().isBlank());
         assertFalse(objectMapper.valueToTree(response).has("promptType"));
 
         ArgumentCaptor<DialogueTurnVo> turns = ArgumentCaptor.forClass(DialogueTurnVo.class);
@@ -178,6 +179,51 @@ class VoiceTurnServiceImplTest {
         assertEquals("김철수", stored.get("slots").get("recipient").asText());
         verify(voiceSessionMapper).completeTurn(USER_ID, SESSION_ID, DialogueStep.AWAITING_AMOUNT.name());
         verify(voiceInteractionCardMapper).deactivateActiveBySessionId(SESSION_ID);
+    }
+
+    @Test
+    void rejectsCancelledAzureFinalBeforeItCanCreateTurnOrTransferSideEffects() {
+        VoiceSessionVo cancelled = processingBackendTransferSession();
+        cancelled.setActiveInputTurnId("20000000-0000-0000-0000-000000000099");
+        cancelled.setLifecycleGeneration(8);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(cancelled);
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.processAzureTransferFinal(
+                USER_ID,
+                SESSION_ID,
+                TURN_ID,
+                7,
+                new AzureSpeechDetailedResult("김철수에게 오만 원 보내줘", new BigDecimal("0.95"), List.of())));
+
+        assertEquals(com.silvertown.global.common.exception.ErrorCode.VOICE_TURN_CONFLICT, exception.getErrorCode());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+        verify(dialogueTurnMapper, never()).insert(any());
+        verify(voiceInteractionCardIssuer, never()).issueIfInteractive(any(), any(), any());
+    }
+
+    @Test
+    void rechecksTheGenerationImmediatelyBeforePersistingAzureFinalSideEffects() {
+        VoiceSessionVo claimed = processingBackendTransferSession();
+        claimed.setActiveInputTurnId(TURN_ID);
+        claimed.setLifecycleGeneration(7);
+        VoiceSessionVo cancelledAfterAnalysis = processingBackendTransferSession();
+        cancelledAfterAnalysis.setLifecycleGeneration(8);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID))
+                .thenReturn(claimed, cancelledAfterAnalysis, cancelledAfterAnalysis);
+        when(amountCandidateGenerator.decide(any())).thenReturn(new AmountCandidateDecision(
+                AmountCandidateDecisionType.REASK, null, List.of(), false));
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.processAzureTransferFinal(
+                USER_ID,
+                SESSION_ID,
+                TURN_ID,
+                7,
+                new AzureSpeechDetailedResult("김철수에게 오만 원 보내줘", new BigDecimal("0.95"), List.of())));
+
+        assertEquals(com.silvertown.global.common.exception.ErrorCode.VOICE_TURN_CONFLICT, exception.getErrorCode());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+        verify(dialogueTurnMapper, never()).insert(any());
+        verify(voiceInteractionCardIssuer, never()).issueIfInteractive(any(), any(), any());
     }
 
     @Test
@@ -754,6 +800,50 @@ class VoiceTurnServiceImplTest {
         verify(transferService, never()).authenticate(any(), any(), any(), any());
         verify(transferService, never()).execute(any(), any(), any(), any());
         verify(voiceTurnAnalysisPort, never()).analyze(any());
+    }
+
+    @Test
+    void streamingGuidanceCommandPreservesTheCommandAndUpdatesTheNextSessionStep() {
+        VoiceSessionVo claimed = processingFinalApprovalSession();
+        claimed.setActiveInputTurnId(TURN_ID);
+        claimed.setLifecycleGeneration(4);
+        VoiceSessionVo current = processingFinalApprovalSession();
+        current.setActiveInputTurnId(TURN_ID);
+        current.setLifecycleGeneration(4);
+        when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(claimed, current);
+        when(voiceInteractionCardMapper.findBySessionId(SESSION_ID)).thenReturn(transferReadbackCard());
+        when(transferService.get(
+                UUID.fromString(USER_ID), UUID.fromString("70000000-0000-0000-0000-000000000001")))
+                .thenReturn(canonicalReadback());
+        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(6, 7);
+        when(voiceSessionMapper.completeStreamTurnWithAi(
+                        eq(USER_ID),
+                        eq(SESSION_ID),
+                        eq(TURN_ID),
+                        eq(4L),
+                        any(),
+                        eq(DialogueStep.WAITING_FINAL_APPROVAL.name()),
+                        any()))
+                .thenReturn(1);
+
+        VoiceTurnResponse response = service.processAzureTransferFinal(
+                USER_ID,
+                SESSION_ID,
+                TURN_ID,
+                4,
+                new AzureSpeechDetailedResult("천천히 말해줘", new BigDecimal("0.95"), List.of()));
+
+        assertEquals(DialogueStep.WAITING_FINAL_APPROVAL, response.getState());
+        assertEquals("ASK_FINAL_APPROVAL", response.getNextAction());
+        verify(voiceTurnAnalysisPort, never()).analyze(any());
+        verify(voiceSessionMapper).completeStreamTurnWithAi(
+                eq(USER_ID),
+                eq(SESSION_ID),
+                eq(TURN_ID),
+                eq(4L),
+                any(),
+                eq(DialogueStep.WAITING_FINAL_APPROVAL.name()),
+                any());
     }
 
     @Test
