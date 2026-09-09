@@ -79,6 +79,17 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
                 new VoiceGuidanceTemplateRenderer(), new VoiceGuidanceSettingsService(null));
     }
 
+    /**
+     * Processes a voice UI action for a user's session and produces the resulting response.
+     *
+     * <p>Repeated action identifiers reuse the previously stored response when the request matches.</p>
+     *
+     * @param userId    the user who owns the session
+     * @param sessionId the session receiving the action
+     * @param request   the voice UI action request
+     * @return the response generated for the action
+     * @throws BusinessException if the session or action is invalid, unavailable, or conflicts with stored state
+     */
     @Override
     @Transactional
     public VoiceUiActionResponse process(String userId, String sessionId, VoiceUiActionRequest request) {
@@ -135,6 +146,14 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
         return response;
     }
 
+    /**
+     * Reuses a previously stored response for a matching voice UI action.
+     *
+     * @param action the previously stored voice UI action
+     * @param sessionId the current session identifier
+     * @param requestHash the hash of the current request
+     * @return the stored response associated with the action
+     */
     private VoiceUiActionResponse reuseOrReject(
             VoiceUiActionVo action, String sessionId, String requestHash) {
         if (!sessionId.equals(action.getSessionId()) || !requestHash.equals(action.getRequestHash())) {
@@ -414,6 +433,15 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
         }
     }
 
+    /**
+     * Creates an AI dialogue turn from an action outcome.
+     *
+     * @param userId   the user associated with the session
+     * @param sessionId the session associated with the turn
+     * @param turnId   the identifier assigned to the new turn
+     * @param outcome  the action outcome used to populate the turn
+     * @return the populated AI dialogue turn
+     */
     private DialogueTurnVo aiTurn(
             String userId, String sessionId, String turnId, ActionOutcome outcome) {
         DialogueTurnVo turn = new DialogueTurnVo();
@@ -438,6 +466,13 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
         return turn;
     }
 
+    /**
+     * Renders the outcome's text using the guidance mode associated with the session.
+     *
+     * @param sessionId the identifier of the voice session
+     * @param outcome   the action outcome to render
+     * @return the rendered guidance text
+     */
     private String renderedText(String sessionId, ActionOutcome outcome) {
         var state = voiceAdaptationSessionStateStore.stateOf(sessionId);
         var mode = state == null ? com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD : state.mode();
@@ -445,6 +480,14 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
                 outcome.ttsText(), outcome.displayCard(), mode, VoiceNextAction.valueOf(outcome.nextAction()));
     }
 
+    /**
+     * Renders text as SSML using the session's guidance mode.
+     *
+     * @param userId    the user whose voice preferences apply
+     * @param text      the text to render
+     * @param sessionId the session whose guidance mode determines the rendering
+     * @return          the rendered SSML
+     */
     private String renderSsml(String userId, String text, String sessionId) {
         var state = voiceAdaptationSessionStateStore.stateOf(sessionId);
         var mode = state == null ? com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD : state.mode();
@@ -453,6 +496,12 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
                 : voiceSsmlRenderer.render(userId, text, mode);
     }
 
+    /**
+     * Reconstructs a previously stored voice UI action response from a dialogue turn.
+     *
+     * @return the stored response associated with the session and action
+     * @throws BusinessException if the persisted response data is malformed
+     */
     private VoiceUiActionResponse storedResponse(String sessionId, String actionId, DialogueTurnVo turn) {
         try {
             JsonNode stored = objectMapper.readTree(turn.getExtractedSlots());

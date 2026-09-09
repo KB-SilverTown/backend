@@ -78,6 +78,13 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
                 new VoiceGuidanceSettingsService(null), objectMapper, clock);
     }
 
+    /**
+     * Creates a voice session and generates its initial prompt.
+     *
+     * @param userId  the user who owns the session
+     * @param request the requested session configuration
+     * @return the newly created voice session details
+     */
     @Override
     @Transactional
     public VoiceSessionResponse create(String userId, VoiceSessionCreateRequest request) {
@@ -122,6 +129,13 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
         return toDetailResponse(findOwnedAndExpireIfNeeded(userId, sessionId));
     }
 
+    /**
+     * Closes an active voice session and performs associated session cleanup.
+     *
+     * @param userId    the user who owns the session
+     * @param sessionId the session to close
+     * @return the updated voice-session details
+     */
     @Override
     @Transactional
     public VoiceSessionDetailResponse close(String userId, String sessionId) {
@@ -168,6 +182,12 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
         return activeAccounts.get(0).getAccountId();
     }
 
+    /**
+     * Loads a user's voice session and expires it when its idle deadline has passed.
+     *
+     * @return the owned voice session, including any expiration updates
+     * @throws BusinessException if the session does not exist for the user
+     */
     private VoiceSessionVo findOwnedAndExpireIfNeeded(String userId, String sessionId) {
         VoiceSessionVo voiceSession = voiceSessionMapper.findOwnedById(
                 userId, sessionId);
@@ -200,6 +220,13 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
                 UUID.fromString(voiceSession.getUserId()), UUID.fromString(voiceSession.getTransferId()));
     }
 
+    /**
+     * Persists the initial AI prompt for a voice session with rendered speech markup.
+     *
+     * @param userId     the user who owns the session
+     * @param sessionId  the voice session identifier
+     * @param firstPrompt the initial prompt text
+     */
     private void saveFirstPrompt(String userId, String sessionId, String firstPrompt) {
         DialogueTurnVo dialogueTurn = new DialogueTurnVo();
         dialogueTurn.setTurnId(UUID.randomUUID().toString());

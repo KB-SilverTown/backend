@@ -52,6 +52,14 @@ public class VoiceAdaptationPolicy {
                 clamp(baseSpeechRate.add(rateDelta), MIN_SPEECH_RATE, MAX_SPEECH_RATE));
     }
 
+    /**
+     * Applies the highest-priority applicable signal to the voice adaptation state.
+     *
+     * @param state               the current adaptation state
+     * @param currentDecisionStep the dialogue step being evaluated
+     * @param signals             the signals detected for the current decision
+     * @return the resulting adaptation state
+     */
     private VoiceAdaptationState applyHighestPrioritySignal(
             VoiceAdaptationState state,
             DialogueStep currentDecisionStep,

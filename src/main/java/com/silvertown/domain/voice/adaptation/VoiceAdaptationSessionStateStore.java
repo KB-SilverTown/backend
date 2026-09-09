@@ -48,10 +48,22 @@ public class VoiceAdaptationSessionStateStore {
         recordSignals(sessionId, currentDecisionStep, Set.of(VoiceAdaptationSignal.RESPONSE_RENDERED));
     }
 
+    /**
+     * Clears the stored adaptation state for a session.
+     *
+     * @param sessionId the session whose adaptation state should be removed
+     */
     public void clear(String sessionId) {
         states.remove(sessionId);
     }
 
+    /**
+     * Initializes the session with the specified voice adaptation mode when it is not standard.
+     *
+     * @param sessionId           the session to initialize
+     * @param currentDecisionStep the dialogue step associated with the session
+     * @param initialMode         the initial voice adaptation mode
+     */
     public void initialize(String sessionId, DialogueStep currentDecisionStep, VoiceGuidanceMode initialMode) {
         if (initialMode == VoiceGuidanceMode.STANDARD) {
             return;
@@ -63,7 +75,11 @@ public class VoiceAdaptationSessionStateStore {
                 0));
     }
 
-    /** Returns the current short-lived state for the response renderer. */
+    /**
+     * Retrieves the current adaptation state for a session.
+     *
+     * @return the stored adaptation state, or {@code null} if the session has no state
+     */
     public VoiceAdaptationState stateOf(String sessionId) {
         SessionState state = states.get(sessionId);
         return state == null ? null : state.policyState();

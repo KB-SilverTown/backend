@@ -47,7 +47,18 @@ public class VoiceSilenceTimeoutService {
     private final Clock clock;
     private final PlatformTransactionManager transactionManager;
 
-    /** Compatibility constructor retained for focused unit tests that do not load Spring. */
+    /**
+     * Creates the service with default adaptation and guidance components for focused unit tests.
+     *
+     * @param voiceSessionMapper          mapper for voice sessions
+     * @param dialogueTurnMapper          mapper for dialogue turns
+     * @param voiceProgressPromptFactory  factory for progress prompts
+     * @param voiceSsmlRenderer           renderer for speech markup
+     * @param voiceTransferOrchestrator   handler for voice transfers
+     * @param objectMapper                serializer for stored response data
+     * @param clock                       source of the current time
+     * @param transactionManager           manager for transaction execution
+     */
     public VoiceSilenceTimeoutService(
             VoiceSessionMapper voiceSessionMapper,
             DialogueTurnMapper dialogueTurnMapper,
@@ -62,6 +73,12 @@ public class VoiceSilenceTimeoutService {
                 new VoiceGuidanceSettingsService(null), objectMapper, clock, transactionManager);
     }
 
+    /**
+     * Processes active interactive voice sessions whose silence timeout may have expired.
+     *
+     * <p>Failures while processing an individual session are logged and do not prevent other
+     * candidate sessions from being processed.</p>
+     */
     @Scheduled(fixedDelayString = "${voice.session.silence-check-millis:1000}")
     public void handleExpiredSilence() {
         LocalDateTime now = LocalDateTime.now(clock);
@@ -79,6 +96,15 @@ public class VoiceSilenceTimeoutService {
         }
     }
 
+    /**
+     * Processes a voice session whose latest AI prompt has exceeded the silence timeout.
+     *
+     * <p>Closes the session after a second silence during continuation; otherwise prompts for
+     * continuation and updates the session to await a response.</p>
+     *
+     * @param userId    the owning user's identifier
+     * @param sessionId the voice session identifier
+     */
     private void handleCandidate(String userId, String sessionId) {
         VoiceSessionVo voiceSession = voiceSessionMapper.findOwnedByIdForUpdate(userId, sessionId);
         if (!isActiveInteractiveSession(voiceSession)) {
@@ -142,6 +168,13 @@ public class VoiceSilenceTimeoutService {
                 && !turn.getCreatedAt().plus(SILENCE_TIMEOUT).isAfter(LocalDateTime.now(clock));
     }
 
+    /**
+     * Saves an AI dialogue turn generated from the provided analysis.
+     *
+     * @param userId   the user associated with the voice session
+     * @param sessionId the voice session receiving the turn
+     * @param analysis the analyzed response content and metadata
+     */
     private void saveAiTurn(String userId, String sessionId, VoiceTurnAnalysisResult analysis) {
         DialogueTurnVo turn = new DialogueTurnVo();
         turn.setTurnId(UUID.randomUUID().toString());

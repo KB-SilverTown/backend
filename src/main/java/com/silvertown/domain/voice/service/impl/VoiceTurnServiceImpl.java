@@ -103,7 +103,9 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
     private final VoiceGuidanceTemplateRenderer voiceGuidanceTemplateRenderer;
     private final VoiceGuidanceSettingsService voiceGuidanceSettingsService;
 
-    /** Compatibility constructor retained for focused unit and integration tests. */
+    /**
+     * Creates the service with default guidance parsing, adaptation, rendering, and settings components.
+     */
     public VoiceTurnServiceImpl(
             VoiceSessionMapper voiceSessionMapper,
             DialogueTurnMapper dialogueTurnMapper,
@@ -129,6 +131,14 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 new VoiceGuidanceTemplateRenderer(), new VoiceGuidanceSettingsService(null));
     }
 
+    /**
+     * Processes a voice turn for the specified user session.
+     *
+     * @param userId    the user who owns the session
+     * @param sessionId the session receiving the turn
+     * @param request   the voice turn request
+     * @return the processed voice turn response
+     */
     @Override
     public VoiceTurnResponse process(String userId, String sessionId, VoiceTurnRequest request) {
         return processInternal(userId, sessionId, request, false,
@@ -149,6 +159,16 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         });
     }
 
+    /**
+     * Processes a voice turn, including analysis, recipient enrichment, persistence, and completion.
+     *
+     * @param userId            the user who owns the session
+     * @param sessionId         the session containing the turn
+     * @param request           the voice turn request
+     * @param azureTransferFinal whether the turn is the final Azure transfer input
+     * @param analysisResolver the function used to analyze the session when no guidance command is present
+     * @return the processed voice turn response
+     */
     private VoiceTurnResponse processInternal(
             String userId,
             String sessionId,
@@ -202,6 +222,12 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         return voiceProgressPromptFactory.resumePrompt(source);
     }
 
+    /**
+     * Creates the risk-check guidance response for an active transfer risk-check card.
+     *
+     * @param voiceSession the session containing the active transfer context
+     * @return the risk-check prompt and transfer card
+     */
     private VoiceTurnAnalysisResult riskCheckGuidanceCommandResponse(VoiceSessionVo voiceSession) {
         VoiceInteractionCardVo card = voiceInteractionCardMapper.findBySessionId(voiceSession.getSessionId());
         if (card == null || !card.isActive() || !"TRANSFER_RISK_CHECK".equals(card.getCardType())
@@ -218,6 +244,15 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 null);
     }
 
+    /**
+     * Records adaptation signals and dialogue progression for the current voice turn.
+     *
+     * @param voiceSession the active voice session
+     * @param request      the voice turn request
+     * @param analysis     the analysis result for the turn
+     * @param command      the optional guidance command
+     * @return {@code true} if applying the command reached the maximum volume
+     */
     private boolean prepareAdaptationSignalHandling(
             VoiceSessionVo voiceSession,
             VoiceTurnRequest request,
@@ -248,6 +283,12 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         return maximumVolumeReached;
     }
 
+    /**
+     * Marks the rendered response for the session's current dialogue step unless the response cancels the session.
+     *
+     * @param voiceSession the voice session associated with the response
+     * @param response     the generated turn response
+     */
     private void completeAdaptationSignalHandling(
             VoiceSessionVo voiceSession, VoiceTurnResponse response) {
         DialogueStep currentStep = DialogueStep.valueOf(voiceSession.getCurrentStep());
@@ -880,6 +921,18 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         });
     }
 
+    /**
+     * Persists the user and assistant turns, applies transfer and interaction-card actions,
+     * updates session state, and returns the rendered voice response.
+     *
+     * @param userId          the owner of the voice session
+     * @param sessionId      the voice session identifier
+     * @param request        the incoming voice-turn request
+     * @param claimedSession the session state claimed for processing
+     * @param analysis       the analyzed voice-turn result
+     * @param command        the guidance command associated with the turn
+     * @return the completed voice-turn response
+     */
     private VoiceTurnResponse persistAndCompleteTurn(
             String userId,
             String sessionId,
@@ -946,9 +999,10 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
     }
 
     /**
-     * A guardian-verification hold is owned by the transfer domain.  While it remains held,
-     * subsequent voice turns must not clear the active card that keeps the turn processor on
-     * the server-side hold path.
+     * Determines whether an active guardian-verification hold card should remain available.
+     *
+     * @return {@code true} if the session and analysis remain in the guardian-verification hold state,
+     *         {@code false} otherwise
      */
     private boolean keepsActiveHeldCard(VoiceSessionVo session, VoiceTurnAnalysisResult analysis) {
         return DialogueStep.HELD.name().equals(session.getCurrentStep())
@@ -956,6 +1010,12 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 && analysis.getNextAction() == VoiceNextAction.WAIT_GUARDIAN_VERIFICATION;
     }
 
+    /**
+     * Renders guidance-aware TTS and SSML for the analysis result.
+     *
+     * @param maximumVolumeReached whether to append the maximum-volume notice to the TTS text
+     * @return the analysis result with rendered TTS and SSML
+     */
     private VoiceTurnAnalysisResult withRenderedSsml(
             String userId, String sessionId, VoiceTurnAnalysisResult analysis, boolean maximumVolumeReached) {
         var state = voiceAdaptationSessionStateStore.stateOf(sessionId);
@@ -1147,6 +1207,16 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
         }
     }
 
+    /**
+     * Expires an eligible voice session and preserves its current dialogue step.
+     *
+     * <p>Unexecuted transfers are cancelled, active interaction cards are deactivated,
+     * and guidance state is completed and cleared.</p>
+     *
+     * @param userId       the session owner's identifier
+     * @param sessionId    the session identifier
+     * @param voiceSession the session to evaluate and update
+     */
     private void expireSessionIfNeeded(String userId, String sessionId, VoiceSessionVo voiceSession) {
         VoiceSessionStatus status = VoiceSessionStatus.valueOf(voiceSession.getStatus());
         LocalDateTime expiresAt = voiceSession.getExpiresAt();

@@ -25,10 +25,25 @@ public class VoiceSsmlRenderer {
 
     private final UserVoiceSettingsMapper userVoiceSettingsMapper;
 
+    /**
+     * Renders text using the user's voice settings in standard guidance mode.
+     *
+     * @param userId  the user whose voice settings are applied
+     * @param ttsText the text to render
+     * @return        the generated Korean SSML, or {@code null} when {@code ttsText} is {@code null}
+     */
     public String render(String userId, String ttsText) {
         return render(userId, ttsText, VoiceGuidanceMode.STANDARD);
     }
 
+    /**
+     * Generates Korean SSML using the user's voice settings and the specified guidance mode.
+     *
+     * @param userId       the user whose voice settings are applied
+     * @param ttsText      the text to render
+     * @param guidanceMode the mode used to adjust the speech rate
+     * @return Korean SSML for the text, or {@code null} when {@code ttsText} is {@code null}
+     */
     public String render(String userId, String ttsText, VoiceGuidanceMode guidanceMode) {
         if (ttsText == null) {
             return null;
@@ -47,6 +62,12 @@ public class VoiceSsmlRenderer {
                 + "</prosody></voice></speak>";
     }
 
+    /**
+     * Determines the speech-rate adjustment for the specified guidance mode.
+     *
+     * @param guidanceMode the voice guidance mode; {@code null} uses the standard mode
+     * @return the speech-rate adjustment for the guidance mode
+     */
     private BigDecimal rateDelta(VoiceGuidanceMode guidanceMode) {
         return switch (guidanceMode == null ? VoiceGuidanceMode.STANDARD : guidanceMode) {
             case SUPPORT -> new BigDecimal("-0.05");
@@ -55,6 +76,14 @@ public class VoiceSsmlRenderer {
         };
     }
 
+    /**
+     * Restricts a numeric value to the specified inclusive bounds.
+     *
+     * @param value   the value to restrict
+     * @param minimum the inclusive lower bound
+     * @param maximum the inclusive upper bound
+     * @return the minimum if the value is below it, the maximum if the value exceeds it, or the value otherwise
+     */
     private BigDecimal clamp(BigDecimal value, BigDecimal minimum, BigDecimal maximum) {
         if (value.compareTo(minimum) < 0) {
             return minimum;
@@ -62,6 +91,12 @@ public class VoiceSsmlRenderer {
         return value.compareTo(maximum) > 0 ? maximum : value;
     }
 
+    /**
+     * Normalizes voice settings by applying defaults to missing or invalid values.
+     *
+     * @param settings the user voice settings to normalize
+     * @return settings containing only supported voice, speech-rate, and volume values
+     */
     private UserVoiceSettingsVo normalize(UserVoiceSettingsVo settings) {
         UserVoiceSettingsVo normalized = defaultSettings();
         if (settings == null) {

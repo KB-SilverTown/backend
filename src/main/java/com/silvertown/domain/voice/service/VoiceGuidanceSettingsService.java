@@ -24,6 +24,12 @@ public class VoiceGuidanceSettingsService {
 
     private final UserVoiceSettingsMapper userVoiceSettingsMapper;
 
+    /**
+     * Determines the voice guidance mode for a new session.
+     *
+     * @param userId the user whose preferred mode is retrieved
+     * @return the scheduled support mode, compact mode, or standard mode
+     */
     @Transactional
     public VoiceGuidanceMode initialMode(String userId) {
         if (userVoiceSettingsMapper == null) {
@@ -42,6 +48,13 @@ public class VoiceGuidanceSettingsService {
                 ? VoiceGuidanceMode.COMPACT : VoiceGuidanceMode.STANDARD;
     }
 
+    /**
+     * Applies an explicit voice guidance adjustment and saves the updated preferences.
+     *
+     * @param userId  the user whose preferences are updated
+     * @param command the voice guidance adjustment to apply
+     * @return {@code true} if a louder command reaches the maximum volume, {@code false} otherwise
+     */
     @Transactional
     public boolean applyExplicitCommand(String userId, VoiceGuidanceCommand command) {
         if (userVoiceSettingsMapper == null) {
@@ -67,6 +80,12 @@ public class VoiceGuidanceSettingsService {
                 && settings.getVolumeMultiplier().compareTo(MAX_VOLUME) == 0;
     }
 
+    /**
+     * Persists the completed session's support signals and updates support mode for the next session.
+     *
+     * @param userId the user whose voice guidance settings are updated
+     * @param state  the completed session's voice adaptation state
+     */
     @Transactional
     public void completeSession(String userId, VoiceAdaptationState state) {
         if (userVoiceSettingsMapper == null || state == null) {
@@ -83,6 +102,13 @@ public class VoiceGuidanceSettingsService {
         userVoiceSettingsMapper.upsert(settings);
     }
 
+    /**
+     * Initializes voice guidance settings for a user, preserving existing values and filling in missing preferences with defaults.
+     *
+     * @param userId the user identifier to assign to the settings
+     * @param source existing settings to update, or {@code null} to create new settings
+     * @return the initialized voice guidance settings
+     */
     private UserVoiceSettingsVo defaults(String userId, UserVoiceSettingsVo source) {
         UserVoiceSettingsVo settings = source == null ? new UserVoiceSettingsVo() : source;
         settings.setUserId(userId);
@@ -94,6 +120,14 @@ public class VoiceGuidanceSettingsService {
         return settings;
     }
 
+    /**
+     * Restricts a value to the inclusive range between the specified minimum and maximum.
+     *
+     * @param value the value to restrict
+     * @param min   the minimum allowed value
+     * @param max   the maximum allowed value
+     * @return      the minimum when the value is below it, the maximum when the value is above it, or the original value otherwise
+     */
     private BigDecimal clamp(BigDecimal value, BigDecimal min, BigDecimal max) {
         return value.compareTo(min) < 0 ? min : value.compareTo(max) > 0 ? max : value;
     }
