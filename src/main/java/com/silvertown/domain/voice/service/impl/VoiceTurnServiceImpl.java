@@ -169,10 +169,8 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                     ? analysisResolver.apply(claim.voiceSession())
                     : adaptationCommandResponse(request, claim.voiceSession());
             VoiceTurnAnalysisResult analysis = enrichRecipientCandidates(claim.voiceSession(), resolved);
-            boolean maximumVolumeReached = prepareAdaptationSignalHandling(
-                    claim.voiceSession(), request, analysis, command);
             VoiceTurnResponse response = persistAndCompleteTurn(
-                    userId, sessionId, request, claim.voiceSession(), analysis, maximumVolumeReached);
+                    userId, sessionId, request, claim.voiceSession(), analysis, command);
             completeAdaptationSignalHandling(claim.voiceSession(), response);
             return response;
         } catch (DuplicateKeyException exception) {
@@ -888,7 +886,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
             VoiceTurnRequest request,
             VoiceSessionVo claimedSession,
             VoiceTurnAnalysisResult analysis,
-            boolean maximumVolumeReached) {
+            VoiceGuidanceCommand command) {
         return inTransaction(() -> {
             VoiceSessionVo currentSession = findOwnedSessionForTurn(userId, sessionId);
             if (currentSession == null) {
@@ -898,6 +896,8 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
             }
 
+            boolean maximumVolumeReached = prepareAdaptationSignalHandling(
+                    currentSession, request, analysis, command);
             String voiceCardAction = voiceCardAction(analysis);
             VoiceTurnAnalysisResult renderedAnalysis = withRenderedSsml(
                     userId, sessionId, withoutVoiceCardAction(analysis), maximumVolumeReached);
@@ -971,9 +971,7 @@ public class VoiceTurnServiceImpl implements VoiceTurnService {
                 analysis.getSlots(),
                 analysis.getConfidence(),
                 ttsText,
-                mode == com.silvertown.domain.voice.enums.VoiceGuidanceMode.STANDARD
-                        ? voiceSsmlRenderer.render(userId, ttsText)
-                        : voiceSsmlRenderer.render(userId, ttsText, mode),
+                voiceSsmlRenderer.render(userId, ttsText, mode),
                 analysis.getDisplayCard(),
                 analysis.getRequiredSlot(),
                 analysis.getDraftSummary(),

@@ -128,7 +128,7 @@ public class VoiceUiActionServiceImpl implements VoiceUiActionService {
         action.setResponseTurnId(responseTurnId);
         voiceUiActionMapper.insert(action);
         VoiceUiActionResponse response = storedResponse(sessionId, request.getActionId(), responseTurn);
-        if (response.getTtsText() != null) {
+        if (response.getTtsText() != null && !outcome.closeSession()) {
             voiceAdaptationSessionStateStore.responseRendered(
                     sessionId, DialogueStep.valueOf(session.getCurrentStep()));
         }
