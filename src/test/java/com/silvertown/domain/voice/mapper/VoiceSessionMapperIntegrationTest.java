@@ -116,6 +116,50 @@ class VoiceSessionMapperIntegrationTest {
         }
     }
 
+    @Test
+    void persistsStreamLifecycleStateTransitions() {
+        String inputTurnId = "20000000-0000-0000-0000-000000000001";
+        String aiTurnId = "30000000-0000-0000-0000-000000000001";
+        try (SqlSession sqlSession = sessionFactory.openSession()) {
+            VoiceSessionMapper mapper = sqlSession.getMapper(VoiceSessionMapper.class);
+            VoiceSessionVo session = newSession();
+            session.setFlowType("TRANSFER");
+            session.setSttMode("BACKEND_STREAM");
+            session.setEntryPoint("TRANSFER");
+            mapper.insert(session);
+
+            assertEquals(1, mapper.claimStreamInputTurn(
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId));
+            assertEquals(1, mapper.beginStreamFinalProcessing(
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, 0));
+            assertEquals(1, mapper.completeStreamTurnWithAi(
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId, 0, aiTurnId));
+
+            VoiceSessionVo speaking = mapper.findOwnedById(OWNER_ID.toString(), SESSION_ID.toString());
+            assertEquals("SPEAKING", speaking.getStatus());
+            assertNull(speaking.getActiveInputTurnId());
+            assertEquals(aiTurnId, speaking.getActiveAiTurnId());
+            assertEquals(0, speaking.getLifecycleGeneration());
+
+            assertEquals(1, mapper.interruptActiveAiTurn(
+                    OWNER_ID.toString(), SESSION_ID.toString(), aiTurnId));
+            VoiceSessionVo listening = mapper.findOwnedById(OWNER_ID.toString(), SESSION_ID.toString());
+            assertEquals("LISTENING", listening.getStatus());
+            assertNull(listening.getActiveAiTurnId());
+            assertEquals(1, listening.getLifecycleGeneration());
+
+            assertEquals(1, mapper.claimStreamInputTurn(
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId));
+            assertEquals(1, mapper.cancelActiveInputTurn(
+                    OWNER_ID.toString(), SESSION_ID.toString(), inputTurnId));
+            VoiceSessionVo cancelledInput = mapper.findOwnedById(
+                    OWNER_ID.toString(), SESSION_ID.toString());
+            assertEquals("LISTENING", cancelledInput.getStatus());
+            assertNull(cancelledInput.getActiveInputTurnId());
+            assertEquals(2, cancelledInput.getLifecycleGeneration());
+        }
+    }
+
     private void createSchema(PooledDataSource dataSource) throws Exception {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute("CREATE TABLE voice_sessions ("
@@ -123,6 +167,8 @@ class VoiceSessionMapperIntegrationTest {
                     + "from_account_id CHAR(36) NULL, transfer_id CHAR(36) NULL, "
                     + "current_step VARCHAR(30) NOT NULL, flow_type VARCHAR(30), stt_mode VARCHAR(20), "
                     + "entry_point VARCHAR(30) NOT NULL, "
+                    + "active_input_turn_id CHAR(36), active_ai_turn_id CHAR(36), "
+                    + "lifecycle_generation BIGINT NOT NULL DEFAULT 0, "
                     + "started_at TIMESTAMP NOT NULL, ended_at TIMESTAMP NULL, expires_at TIMESTAMP NULL)");
         }
     }
