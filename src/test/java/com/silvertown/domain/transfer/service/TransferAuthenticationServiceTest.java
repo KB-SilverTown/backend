@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,6 +29,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -187,6 +189,38 @@ class TransferAuthenticationServiceTest {
         assertEquals(ErrorCode.TRANSFER_CONFIRMATION_EXPIRED, exception.getErrorCode());
     }
 
+    @Test
+    void requiresAnotherPinAuthenticationAfterConfirmationTokenIsReissued() throws Exception {
+        UUID userId = UUID.randomUUID(); UUID transferId = UUID.randomUUID();
+        Transfer transfer = confirmed(transferId, userId);
+        UserTransferPin pin = new UserTransferPin();
+        pin.setPinHash(new BCryptPasswordEncoder().encode("123456"));
+        TransferAuthentication authentication = activeAuthentication();
+        AtomicInteger expirationCalls = new AtomicInteger();
+        when(mapper.findOwnedByIdForUpdate(userId.toString(), transferId.toString())).thenReturn(transfer);
+        when(mapper.findPinForUpdate(userId.toString())).thenReturn(pin);
+        when(mapper.refreshConfirmationToken(anyString(), anyString(), anyString(), any())).thenReturn(1);
+        doAnswer(invocation -> {
+            if (expirationCalls.incrementAndGet() == 2) {
+                authentication.setStatus("EXPIRED");
+            }
+            return 1;
+        }).when(mapper).expireAuthenticatedAuthentications(userId.toString(), transferId.toString());
+
+        service.authenticate(userId, transferId, CONFIRMATION_TOKEN, pinRequest());
+        var confirmation = service.confirm(userId, transferId, confirmationRequest());
+        when(mapper.findTransactionByIdempotencyKey(userId.toString(), "key")).thenReturn(null);
+        when(mapper.findLatestAuthenticationForUpdate(userId.toString(), transferId.toString()))
+                .thenReturn(authentication);
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.execute(
+                userId, transferId, confirmation.getConfirmationToken(), "key"));
+
+        assertEquals(ErrorCode.TRANSFER_AUTHENTICATION_REQUIRED, exception.getErrorCode());
+        verify(mapper, times(2)).expireAuthenticatedAuthentications(
+                userId.toString(), transferId.toString());
+    }
+
    private TransferAuthentication activeAuthentication() {
     TransferAuthentication authentication = new TransferAuthentication();
     authentication.setStatus("AUTHENTICATED");
@@ -202,6 +236,11 @@ class TransferAuthenticationServiceTest {
     }
     private TransferPinRequest pinRequest() throws Exception { return pinRequest("123456"); }
     private TransferPinRequest pinRequest(String pin) throws Exception { return new ObjectMapper().readValue("{\"pin\":\"" + pin + "\"}", TransferPinRequest.class); }
+    private com.silvertown.domain.transfer.dto.TransferConfirmRequest confirmationRequest()
+            throws Exception {
+        return new ObjectMapper().readValue("{\"approved\":true}",
+                com.silvertown.domain.transfer.dto.TransferConfirmRequest.class);
+    }
     private Transfer confirmed(UUID transferId, UUID userId) {
         Transfer transfer = new Transfer(); transfer.setTransferId(transferId.toString()); transfer.setUserId(userId.toString());
         transfer.setStatus("CONFIRMED"); transfer.setFromAccountId(UUID.randomUUID().toString()); transfer.setRecipientId(UUID.randomUUID().toString()); transfer.setAmount(50_000L);
