@@ -29,6 +29,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class AzureSpeechV2StreamingClient {
+    private static final long START_TIMEOUT_SECONDS = 10;
     private static final long STOP_TIMEOUT_SECONDS = 5;
     private static final String V2_ENDPOINT_TEMPLATE =
             "wss://%s.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v2";
@@ -73,6 +74,11 @@ public class AzureSpeechV2StreamingClient {
                 }
             });
             recognizer.recognized.addEventListener((sender, event) -> {
+                if (event.getResult().getReason() == ResultReason.NoMatch) {
+                    log.info("Azure Speech v2 did not recognize a final utterance.");
+                    listener.onNoMatch();
+                    return;
+                }
                 if (event.getResult().getReason() != ResultReason.RecognizedSpeech) {
                     return;
                 }
@@ -86,7 +92,7 @@ public class AzureSpeechV2StreamingClient {
                     listener.onFailure();
                 }
             });
-            recognizer.startContinuousRecognitionAsync().get();
+            awaitRecognitionStart(recognizer.startContinuousRecognitionAsync());
             return new SpeechSdkRecognitionStream(recognizer, audioConfig, audioStream, speechConfig);
         } catch (BusinessException exception) {
             closeQuietly(recognizer, audioConfig, audioStream, speechConfig);
@@ -126,6 +132,17 @@ public class AzureSpeechV2StreamingClient {
     static void awaitRecognitionStop(Future<Void> completion) {
         try {
             completion.get(STOP_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(ErrorCode.SPEECH_RECOGNITION_FAILED);
+        } catch (Exception exception) {
+            throw new BusinessException(ErrorCode.SPEECH_RECOGNITION_FAILED);
+        }
+    }
+
+    static void awaitRecognitionStart(Future<Void> completion) {
+        try {
+            completion.get(START_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new BusinessException(ErrorCode.SPEECH_RECOGNITION_FAILED);
