@@ -12,6 +12,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.silvertown.domain.auth.dto.AuthResponse;
 import com.silvertown.domain.auth.dto.LoginRequest;
 import com.silvertown.domain.auth.dto.SignUpRequest;
+import com.silvertown.domain.auth.dto.UserProfileResponse;
 import com.silvertown.domain.auth.service.AuthService;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -52,6 +53,11 @@ class AuthControllerContractTest {
 
       @Override
       public void logout(String refreshToken) {
+      }
+
+      @Override
+      public UserProfileResponse getCurrentUserProfile(UUID userId) {
+        throw new UnsupportedOperationException();
       }
     };
     LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();

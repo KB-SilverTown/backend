@@ -20,11 +20,28 @@
     <result property="lastUsedAt" column="last_used_at"/>
     <result property="createdAt" column="created_at"/>
   </resultMap>
+  <resultMap id="currentUserProfileMap" type="com.silvertown.domain.auth.vo.CurrentUserProfileVo">
+    <id property="userId" column="user_id"/>
+    <result property="loginId" column="login_id"/>
+    <result property="name" column="name"/>
+    <result property="phoneEncrypted" column="phone_enc"/>
+    <result property="postalCode" column="postal_code"/>
+    <result property="address" column="address"/>
+    <result property="detailAddress" column="detail_address"/>
+  </resultMap>
 
   <select id="findUserByLoginId" resultMap="authUserMap">
     SELECT user_id, login_id, password_hash, status, last_login_at, created_at
     FROM users
     WHERE login_id = #{loginId, jdbcType=VARCHAR}
+  </select>
+
+  <select id="findCurrentUserProfileByUserId" resultMap="currentUserProfileMap">
+    SELECT u.user_id, u.login_id, p.name, p.phone_enc, p.postal_code, p.address, p.detail_address
+    FROM users u
+    INNER JOIN user_profiles p ON p.user_id = u.user_id
+    WHERE u.user_id = #{userId, jdbcType=CHAR}
+      AND u.status = 'ACTIVE'
   </select>
 
   <insert id="insertUser">
