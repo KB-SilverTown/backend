@@ -39,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.ArgumentMatchers;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
@@ -149,6 +150,23 @@ class VoiceStreamWebSocketHandlerTest {
                 .cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
         verify(stream, timeout(1_000)).close();
         assertError(session, "SPEECH_RECOGNITION_FAILED", true);
+    }
+
+    @Test
+    void releasesTheInputLifecycleBeforeNotifyingTheClientOfNoMatch() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        ArgumentCaptor<AzureSpeechRecognitionListener> listener =
+                ArgumentCaptor.forClass(AzureSpeechRecognitionListener.class);
+        when(voiceSessionService.get(USER_ID, SESSION_ID)).thenReturn(session(VoiceSessionStatus.LISTENING));
+        when(azureSpeechClient.open(listener.capture())).thenReturn(stream);
+
+        handler.handleMessage(session, start(FIRST_TURN_ID));
+        listener.getValue().onNoMatch();
+
+        InOrder ordered = org.mockito.Mockito.inOrder(voiceStreamLifecycleService, session);
+        ordered.verify(voiceStreamLifecycleService)
+                .cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+        ordered.verify(session).sendMessage(any(TextMessage.class));
     }
 
     @Test
