@@ -253,7 +253,7 @@ class VoiceTurnServiceImplTest {
         VoiceTurnResponse response = service.process(USER_ID, SESSION_ID, request("두 번째"));
 
         assertEquals(DialogueStep.AWAITING_RECIPIENT, response.getState());
-        assertEquals("김영희님에게 돈을 보내시려는 게 맞을까요?", response.getTtsText());
+        assertEquals("받는 분은 김영희님입니다. 맞으면 네라고 말씀해 주세요.", response.getTtsText());
         assertEquals("50000000-0000-0000-0000-000000000002",
                 response.getDisplayCard().path("focusedItemId").asText());
         assertEquals("RECONFIRM_INPUT", response.getNextAction());

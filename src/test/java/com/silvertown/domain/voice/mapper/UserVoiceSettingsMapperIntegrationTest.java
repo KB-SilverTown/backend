@@ -153,6 +153,9 @@ class UserVoiceSettingsMapperIntegrationTest {
                     + "user_id CHAR(36) PRIMARY KEY, voice_name VARCHAR(100) NOT NULL, "
                     + "speech_rate_multiplier DECIMAL(3,2) NOT NULL DEFAULT 1.05, "
                     + "volume_multiplier DECIMAL(3,2) NOT NULL DEFAULT 1.00, "
+                    + "preferred_verbosity VARCHAR(16) NOT NULL DEFAULT 'STANDARD', "
+                    + "support_start_next_session BOOLEAN NOT NULL DEFAULT FALSE, "
+                    + "recent_support_signal_count INT NOT NULL DEFAULT 0, "
                     + "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
                     + "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
         }
