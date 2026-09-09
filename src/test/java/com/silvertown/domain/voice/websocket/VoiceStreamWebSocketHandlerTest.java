@@ -552,6 +552,7 @@ class VoiceStreamWebSocketHandlerTest {
         handler.handleMessage(resumedSession, resume(FIRST_TURN_ID, -1));
 
         verify(resumedSession).sendMessage(any(TextMessage.class));
+        verify(voiceStreamLifecycleService).cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
         verify(stream, timeout(1_000)).stop();
         verify(stream, timeout(1_000)).close();
     }
@@ -568,6 +569,8 @@ class VoiceStreamWebSocketHandlerTest {
 
         verify(stream, timeout(1_000)).stop();
         verify(stream, timeout(1_000)).close();
+        verify(voiceStreamLifecycleService, timeout(1_000))
+                .cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
     }
 
     private VoiceStreamWebSocketHandler newHandler(long resumeGraceMillis) {
