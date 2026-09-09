@@ -155,7 +155,7 @@ class ReminderServiceImplTest {
     @Test
     void cancelsAnOwnedScheduledReminderAndAllowsDeleteRetry() {
         UUID reminderId = UUID.fromString("20000000-0000-0000-0000-000000000001");
-        when(reminderMapper.findOwnedById(USER_ID.toString(), reminderId.toString()))
+        when(reminderMapper.findOwnedByIdForUpdate(USER_ID.toString(), reminderId.toString()))
                 .thenReturn(reminder(reminderId, ReminderStatus.SCHEDULED));
         when(reminderMapper.cancelScheduledForOwner(USER_ID.toString(), reminderId.toString())).thenReturn(1);
 
@@ -163,10 +163,25 @@ class ReminderServiceImplTest {
 
         verify(reminderMapper).cancelScheduledForOwner(USER_ID.toString(), reminderId.toString());
 
-        when(reminderMapper.findOwnedById(USER_ID.toString(), reminderId.toString()))
+        when(reminderMapper.findOwnedByIdForUpdate(USER_ID.toString(), reminderId.toString()))
                 .thenReturn(reminder(reminderId, ReminderStatus.CANCELLED));
         reminderService.cancel(USER_ID, reminderId);
         verify(reminderMapper).cancelScheduledForOwner(USER_ID.toString(), reminderId.toString());
+    }
+
+    @Test
+    void treatsAnAlreadyCancelledReminderAsSuccessWhenTheConditionalUpdateLosesTheRace() {
+        UUID reminderId = UUID.fromString("20000000-0000-0000-0000-000000000001");
+        when(reminderMapper.findOwnedByIdForUpdate(USER_ID.toString(), reminderId.toString()))
+                .thenReturn(reminder(reminderId, ReminderStatus.SCHEDULED));
+        when(reminderMapper.cancelScheduledForOwner(USER_ID.toString(), reminderId.toString())).thenReturn(0);
+        when(reminderMapper.findOwnedById(USER_ID.toString(), reminderId.toString()))
+                .thenReturn(reminder(reminderId, ReminderStatus.CANCELLED));
+
+        reminderService.cancel(USER_ID, reminderId);
+
+        verify(reminderMapper).cancelScheduledForOwner(USER_ID.toString(), reminderId.toString());
+        verify(reminderMapper).findOwnedById(USER_ID.toString(), reminderId.toString());
     }
 
     private ReminderVo reminder(UUID reminderId, ReminderStatus status) {

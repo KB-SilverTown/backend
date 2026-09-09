@@ -18,6 +18,8 @@ public interface ReminderMapper {
 
     ReminderVo findOwnedById(@Param("userId") String userId, @Param("reminderId") String reminderId);
 
+    ReminderVo findOwnedByIdForUpdate(@Param("userId") String userId, @Param("reminderId") String reminderId);
+
     int insert(ReminderVo reminder);
 
     int updateScheduledForOwner(ReminderVo reminder);

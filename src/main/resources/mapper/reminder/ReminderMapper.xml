@@ -40,6 +40,14 @@
       AND reminder_id = #{reminderId, jdbcType=CHAR}
   </select>
 
+  <select id="findOwnedByIdForUpdate" resultMap="reminderMap">
+    SELECT reminder_id, user_id, bill_id, title, remind_at, status
+    FROM reminders
+    WHERE user_id = #{userId, jdbcType=CHAR}
+      AND reminder_id = #{reminderId, jdbcType=CHAR}
+    FOR UPDATE
+  </select>
+
   <insert id="insert" parameterType="com.silvertown.domain.reminder.vo.ReminderVo">
     INSERT INTO reminders (
       reminder_id, user_id, bill_id, title, remind_at, status

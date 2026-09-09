@@ -100,13 +100,20 @@ public class ReminderServiceImpl implements ReminderService {
     @Override
     @Transactional
     public void cancel(UUID userId, UUID reminderId) {
-        ReminderVo reminder = requireOwnedReminder(userId, reminderId);
+        ReminderVo reminder = requireOwnedReminderForUpdate(userId, reminderId);
         ReminderStatus status = ReminderStatus.valueOf(reminder.getStatus());
         if (status == ReminderStatus.CANCELLED) {
             return;
         }
-        if (status != ReminderStatus.SCHEDULED
-                || reminderMapper.cancelScheduledForOwner(userId.toString(), reminderId.toString()) != 1) {
+        if (status != ReminderStatus.SCHEDULED) {
+            throw new BusinessException(ErrorCode.REMINDER_INVALID_STATE);
+        }
+        if (reminderMapper.cancelScheduledForOwner(userId.toString(), reminderId.toString()) == 1) {
+            return;
+        }
+
+        ReminderVo current = requireOwnedReminder(userId, reminderId);
+        if (ReminderStatus.valueOf(current.getStatus()) != ReminderStatus.CANCELLED) {
             throw new BusinessException(ErrorCode.REMINDER_INVALID_STATE);
         }
     }
@@ -121,6 +128,14 @@ public class ReminderServiceImpl implements ReminderService {
 
     private ReminderVo requireOwnedReminder(UUID userId, UUID reminderId) {
         ReminderVo reminder = reminderMapper.findOwnedById(userId.toString(), reminderId.toString());
+        if (reminder == null) {
+            throw new BusinessException(ErrorCode.REMINDER_NOT_FOUND);
+        }
+        return reminder;
+    }
+
+    private ReminderVo requireOwnedReminderForUpdate(UUID userId, UUID reminderId) {
+        ReminderVo reminder = reminderMapper.findOwnedByIdForUpdate(userId.toString(), reminderId.toString());
         if (reminder == null) {
             throw new BusinessException(ErrorCode.REMINDER_NOT_FOUND);
         }
