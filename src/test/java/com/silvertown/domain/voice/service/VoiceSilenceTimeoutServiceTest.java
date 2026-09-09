@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,7 +22,6 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -103,25 +103,16 @@ class VoiceSilenceTimeoutServiceTest {
     }
 
     @Test
-    void cancelsAnUnexecutedTransferBeforeClosingItsSilentSession() {
+    void leavesBackendStreamSilenceToTheFrontendAfterTtsPlayback() {
         VoiceSessionVo session = activeSession(DialogueStep.AWAITING_CONTINUATION);
-        session.setFlowType(VoiceFlowType.TRANSFER.name());
         session.setSttMode(SttMode.BACKEND_STREAM.name());
-        session.setTransferId("30000000-0000-0000-0000-000000000001");
         when(voiceSessionMapper.findActiveInteractiveSessions(any())).thenReturn(List.of(session));
         when(voiceSessionMapper.findOwnedByIdForUpdate(USER_ID, SESSION_ID)).thenReturn(session);
-        when(dialogueTurnMapper.findLatestBySessionIdForUpdate(SESSION_ID)).thenReturn(aiTurn(5));
-        when(dialogueTurnMapper.recordSilenceMs(any(), eq(15_000))).thenReturn(1);
-        when(dialogueTurnMapper.findNextSequenceNo(SESSION_ID)).thenReturn(6);
-        when(voiceSessionMapper.closeOwned(any(), any(), any(), any())).thenReturn(1);
 
         service.handleExpiredSilence();
 
-        verify(voiceTransferOrchestrator).cancelUnexecuted(
-                eq(UUID.fromString(USER_ID)),
-                eq(UUID.fromString("30000000-0000-0000-0000-000000000001")));
-        verify(voiceSessionMapper).closeOwned(
-                eq(USER_ID), eq(SESSION_ID), eq(DialogueStep.CANCELLED.name()), any());
+        verifyNoInteractions(dialogueTurnMapper, voiceTransferOrchestrator);
+        verify(voiceSessionMapper, times(0)).closeOwned(any(), any(), any(), any());
     }
 
     private VoiceSessionVo activeSession(DialogueStep step) {
