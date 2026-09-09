@@ -343,6 +343,47 @@ class VoiceStreamWebSocketHandlerTest {
     }
 
     @Test
+    void suppressesFinalAndTurnResponseWhenBargeInWinsWhileAzureFinalIsWaiting() throws Exception {
+        WebSocketSession session = webSocketSession("websocket-1");
+        ArgumentCaptor<AzureSpeechRecognitionListener> listener =
+                ArgumentCaptor.forClass(AzureSpeechRecognitionListener.class);
+        CountDownLatch finalStarted = new CountDownLatch(1);
+        CountDownLatch releaseFinal = new CountDownLatch(1);
+        when(azureSpeechClient.open(listener.capture())).thenReturn(stream);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            finalStarted.countDown();
+            await(releaseFinal);
+            return null;
+        }).when(voiceStreamLifecycleService).beginFinalProcessing(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
+
+        handler.handleMessage(session, start(FIRST_TURN_ID));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> finalCallback = executor.submit(() -> listener.getValue().onFinalResult(
+                    new AzureSpeechDetailedResult("오만 원 보내줘", new BigDecimal("0.95"), List.of())));
+            org.junit.jupiter.api.Assertions.assertTrue(finalStarted.await(1, TimeUnit.SECONDS));
+
+            handler.handleMessage(session, bargeIn(FIRST_TURN_ID));
+            releaseFinal.countDown();
+            finalCallback.get(1, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        verify(voiceTurnService, never()).processAzureTransferFinal(
+                ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyLong(),
+                any());
+        ArgumentCaptor<TextMessage> messages = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session, atLeastOnce()).sendMessage(messages.capture());
+        org.junit.jupiter.api.Assertions.assertFalse(messages.getAllValues().stream()
+                .map(message -> readJson(message.getPayload()).path("type").asText())
+                .anyMatch(type -> "FINAL_TRANSCRIPT".equals(type) || "TURN_RESPONSE".equals(type)));
+    }
+
+    @Test
     void routesTheFinalAzureResultToTheCommonTurnServiceAfterStop() throws Exception {
         WebSocketSession session = webSocketSession("websocket-1");
         ArgumentCaptor<AzureSpeechRecognitionListener> listener =
