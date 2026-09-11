@@ -69,6 +69,17 @@ public class VoiceSessionController {
                 userId, requireCanonicalUuid(sessionId)));
     }
 
+    @ApiOperation("음성 송금을 화면 최종 확인으로 인계")
+    @PostMapping("/{sessionId}/handoff")
+    public ResponseEntity<VoiceSessionDetailResponse> handoffToManualConfirmation(
+            Authentication authentication,
+            @PathVariable("sessionId") String sessionId
+    ) {
+        String userId = authenticatedUserId.from(authentication).toString();
+        return ResponseEntity.ok(voiceSessionService.handoffToManualConfirmation(
+                userId, requireCanonicalUuid(sessionId)));
+    }
+
     private String requireCanonicalUuid(String identifier) {
         if (!CANONICAL_UUID_PATTERN.matcher(identifier).matches()) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
