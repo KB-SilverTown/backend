@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.silvertown.domain.voice.amount.AmountCandidateDecision;
+import com.silvertown.domain.voice.amount.AmountCandidateDecisionType;
+import com.silvertown.domain.voice.amount.KoreanAmountCandidateGenerator;
 import com.silvertown.domain.voice.enums.DialogueStep;
 import com.silvertown.domain.voice.enums.VoiceFlowType;
 import com.silvertown.domain.voice.enums.VoiceIntent;
@@ -21,9 +24,13 @@ import java.net.URI;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +40,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -71,24 +79,41 @@ public class OpenAiVoiceTurnAnalysisClient implements VoiceTurnAnalysisPort {
             "얼마", "금액", "조회", "알려", "확인", "이번달", "지난달", "저번달", "이달");
     private static final Set<String> BILL_PAYMENT_KEYWORDS = Set.of(
             "납부", "내고", "낼", "찍", "촬영", "스캔");
+    private static final Pattern TRANSFER_RECIPIENT_PATTERN = Pattern.compile(
+            "([가-힣]{2,8})\\s*(?:에게|한테|께)");
+    private static final Set<String> TRANSFER_KEYWORDS = Set.of("송금", "이체", "보내");
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String model;
     private final String endpoint;
+    private final KoreanAmountCandidateGenerator amountCandidateGenerator;
 
+    @Autowired
     public OpenAiVoiceTurnAnalysisClient(
             @Qualifier("openAiRestTemplate") RestTemplate restTemplate,
             ObjectMapper objectMapper,
             @Value("${openai.api-key:${OPENAI_API_KEY:}}") String apiKey,
             @Value("${openai.model:" + DEFAULT_MODEL + "}") String model,
-            @Value("${openai.responses-endpoint:" + DEFAULT_ENDPOINT + "}") String endpoint) {
+            @Value("${openai.responses-endpoint:" + DEFAULT_ENDPOINT + "}") String endpoint,
+            KoreanAmountCandidateGenerator amountCandidateGenerator) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
         this.model = model;
         this.endpoint = endpoint;
+        this.amountCandidateGenerator = amountCandidateGenerator;
+    }
+
+    /** Compatibility constructor retained for focused unit tests. */
+    public OpenAiVoiceTurnAnalysisClient(
+            RestTemplate restTemplate,
+            ObjectMapper objectMapper,
+            String apiKey,
+            String model,
+            String endpoint) {
+        this(restTemplate, objectMapper, apiKey, model, endpoint, new KoreanAmountCandidateGenerator());
     }
 
     @Override
@@ -107,7 +132,12 @@ public class OpenAiVoiceTurnAnalysisClient implements VoiceTurnAnalysisPort {
             return safeReconfirm(command.getSttConfidence());
         }
 
-        JsonNode response = requestAnalysis(command);
+        JsonNode response;
+        try {
+            response = requestAnalysis(command);
+        } catch (BusinessException exception) {
+            return localTransferFallback(command, exception);
+        }
         return parseAnalysis(response, command);
     }
 
@@ -128,10 +158,74 @@ public class OpenAiVoiceTurnAnalysisClient implements VoiceTurnAnalysisPort {
                 throw analysisFailed();
             }
             return body;
+        } catch (HttpStatusCodeException exception) {
+            String requestId = exception.getResponseHeaders() == null
+                    ? null : exception.getResponseHeaders().getFirst("x-request-id");
+            log.warn("OpenAI voice-turn analysis request failed. status={}, requestId={}",
+                    exception.getRawStatusCode(), requestId);
+            throw analysisFailed();
         } catch (RestClientException exception) {
-            log.warn("OpenAI voice-turn analysis request failed.");
+            log.warn("OpenAI voice-turn analysis request failed. failureType={}",
+                    exception.getClass().getSimpleName());
             throw analysisFailed();
         }
+    }
+
+    /**
+     * Keeps the transfer conversation available when the external classifier is unavailable.
+     * It only extracts an explicit Korean recipient/amount and still requires the ordinary
+     * candidate selection, read-back, PIN, and execution gates.
+     */
+    private VoiceTurnAnalysisResult localTransferFallback(
+            VoiceTurnAnalysisCommand command, BusinessException originalFailure) {
+        if (command.getFlowType() != VoiceFlowType.TRANSFER || !isSimpleTransferInput(command)) {
+            throw originalFailure;
+        }
+
+        Map<String, Object> slots = new LinkedHashMap<>();
+        String recipient = recipientFrom(command.getTranscript());
+        if (recipient != null) {
+            slots.put("recipient", recipient);
+        }
+        AmountCandidateDecision amountDecision = amountCandidateGenerator.decideText(
+                command.getTranscript(), command.getSttConfidence());
+        if (amountDecision.type() == AmountCandidateDecisionType.CONFIRMED) {
+            slots.put("amount", amountDecision.recognizedAmount());
+            slots.put("amountCandidates", java.util.List.of(amountDecision.recognizedAmount()));
+        } else if (amountDecision.type() == AmountCandidateDecisionType.RECONFIRM) {
+            slots.put("amountCandidates", amountDecision.candidates());
+        }
+
+        log.warn("OpenAI voice-turn analysis unavailable; using constrained transfer fallback. step={}",
+                command.getCurrentStep());
+        String ttsText = recipient == null
+                ? "받는 분의 이름을 말씀해 주세요."
+                : recipient + " 님을 확인할게요.";
+        return new VoiceTurnAnalysisResult(
+                DialogueStep.AWAITING_RECIPIENT,
+                VoiceIntent.TRANSFER,
+                slots,
+                command.getSttConfidence(),
+                ttsText,
+                renderTtsSsml(ttsText),
+                null,
+                null,
+                objectMapper.valueToTree(slots),
+                VoiceNextAction.ASK_RECIPIENT,
+                VoiceRequestedFunction.NONE);
+    }
+
+    private boolean isSimpleTransferInput(VoiceTurnAnalysisCommand command) {
+        if (command.getCurrentStep() == DialogueStep.AWAITING_RECIPIENT) {
+            return true;
+        }
+        String transcript = normalizeTranscript(command.getTranscript());
+        return TRANSFER_KEYWORDS.stream().anyMatch(transcript::contains);
+    }
+
+    private String recipientFrom(String transcript) {
+        Matcher matcher = TRANSFER_RECIPIENT_PATTERN.matcher(transcript == null ? "" : transcript);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private URI responseUri() {

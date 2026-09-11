@@ -63,6 +63,11 @@ public class KoreanAmountCandidateGenerator {
                 false);
     }
 
+    /** Text fallback also uses the same conservative Korean won parser as Azure FINAL results. */
+    public AmountCandidateDecision decideText(String transcript, BigDecimal confidence) {
+        return decide(new AzureSpeechDetailedResult(transcript, confidence, List.of()));
+    }
+
     private List<String> sources(AzureSpeechDetailedResult result) {
         if (result == null) {
             return List.of();
