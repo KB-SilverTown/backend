@@ -196,6 +196,11 @@ public class OpenAiVoiceTurnAnalysisClient implements VoiceTurnAnalysisPort {
             slots.put("amountCandidates", amountDecision.candidates());
         }
 
+        if (command.getCurrentStep() == DialogueStep.AWAITING_AMOUNT
+                && slots.containsKey("amountCandidates")) {
+            return localAmountReconfirm(command.getSttConfidence(), slots);
+        }
+
         log.warn("OpenAI voice-turn analysis unavailable; using constrained transfer fallback. step={}",
                 command.getCurrentStep());
         String ttsText = recipient == null
@@ -216,7 +221,8 @@ public class OpenAiVoiceTurnAnalysisClient implements VoiceTurnAnalysisPort {
     }
 
     private boolean isSimpleTransferInput(VoiceTurnAnalysisCommand command) {
-        if (command.getCurrentStep() == DialogueStep.AWAITING_RECIPIENT) {
+        if (command.getCurrentStep() == DialogueStep.AWAITING_RECIPIENT
+                || command.getCurrentStep() == DialogueStep.AWAITING_AMOUNT) {
             return true;
         }
         String transcript = normalizeTranscript(command.getTranscript());
@@ -225,7 +231,36 @@ public class OpenAiVoiceTurnAnalysisClient implements VoiceTurnAnalysisPort {
 
     private String recipientFrom(String transcript) {
         Matcher matcher = TRANSFER_RECIPIENT_PATTERN.matcher(transcript == null ? "" : transcript);
-        return matcher.find() ? matcher.group(1) : null;
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        String normalized = normalizeTranscript(transcript);
+        return normalized.matches("[가-힣]{2,8}") ? normalized : null;
+    }
+
+    private VoiceTurnAnalysisResult localAmountReconfirm(
+            BigDecimal confidence, Map<String, Object> slots) {
+        java.util.List<?> candidates = (java.util.List<?>) slots.get("amountCandidates");
+        if (candidates.isEmpty() || !(candidates.get(0) instanceof Number)) {
+            throw analysisFailed();
+        }
+        long firstCandidate = ((Number) candidates.get(0)).longValue();
+        String ttsText = String.format("보낼 금액은 %,d원이 맞을까요?", firstCandidate);
+        ObjectNode displayCard = objectMapper.createObjectNode();
+        displayCard.put("type", "AMOUNT_RECONFIRM");
+        displayCard.set("amountCandidates", objectMapper.valueToTree(candidates));
+        return new VoiceTurnAnalysisResult(
+                DialogueStep.RECONFIRMING,
+                VoiceIntent.TRANSFER,
+                slots,
+                confidence,
+                ttsText,
+                renderTtsSsml(ttsText),
+                displayCard,
+                null,
+                objectMapper.valueToTree(slots),
+                VoiceNextAction.RECONFIRM_INPUT,
+                VoiceRequestedFunction.TRANSFER_AMOUNT_VALIDATION);
     }
 
     private URI responseUri() {
@@ -295,6 +330,10 @@ public class OpenAiVoiceTurnAnalysisClient implements VoiceTurnAnalysisPort {
                 + "not analysis actions. Use NONE if no allowed function applies. Do not confirm a recipient or "
                 + "amount when confidence is below 0.90. If recipientCandidates or amountCandidates contains "
                 + "more than one value, use RECONFIRMING and RECONFIRM_INPUT without selecting a value. "
+                + "For TRANSFER, extract only an explicitly spoken recipient and a positive won amount into "
+                + "slotsJson; omit an unavailable slot. When either slot is missing, ask only for the missing "
+                + "slot. When both are present, ask for recipient confirmation first; candidate selection, amount "
+                + "validation, risk assessment, final read-back, and PIN are server-owned steps. "
                 + "slotsJson must contain an object JSON string.";
     }
 
