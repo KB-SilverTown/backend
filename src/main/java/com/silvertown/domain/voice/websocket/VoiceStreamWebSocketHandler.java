@@ -230,10 +230,13 @@ public class VoiceStreamWebSocketHandler extends AbstractWebSocketHandler {
                         if (cancelled.get()) {
                             return;
                         }
+                        // Preserve the STT result even when the downstream AI analysis fails.
+                        // The client can then show what was heard and offer a text retry instead
+                        // of making a successful recognition indistinguishable from no result.
+                        sendFinal(responseSession(lifecycle.active.get(), session), inputTurnId, result);
                         VoiceTurnResponse response = voiceTurnService.processAzureTransferFinal(
                                 userId, sessionId, inputTurnId, lifecycleGeneration, result);
                         if (!cancelled.get()) {
-                            sendFinal(responseSession(lifecycle.active.get(), session), inputTurnId, result);
                             sendTurnResponse(responseSession(lifecycle.active.get(), session), inputTurnId, response);
                         }
                     } catch (BusinessException exception) {
