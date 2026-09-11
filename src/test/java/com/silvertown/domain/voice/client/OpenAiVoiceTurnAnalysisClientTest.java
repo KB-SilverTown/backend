@@ -101,15 +101,12 @@ class OpenAiVoiceTurnAnalysisClientTest {
     }
 
     @Test
-    void blocksUnapprovedFunctionNamesFromTheModelResponse() throws Exception {
+    void fallsBackWithoutUsingAnUnapprovedFunctionFromTheModelResponse() throws Exception {
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
         String draft = validDraft().replace("TRANSFER_RECIPIENT_CANDIDATES", "TRANSFER_EXECUTE");
         mockResponse(restTemplate, structuredResponse(draft));
 
-        BusinessException exception = assertThrows(
-                BusinessException.class, () -> client(restTemplate, API_KEY).analyze(command("0.95")));
-
-        assertEquals(ErrorCode.LLM_ANALYSIS_FAILED, exception.getErrorCode());
+        assertConstrainedTransferFallback(client(restTemplate, API_KEY).analyze(command("0.95")));
     }
 
     @Test
@@ -222,19 +219,16 @@ class OpenAiVoiceTurnAnalysisClientTest {
     }
 
     @Test
-    void rejectsRequestedFunctionThatDoesNotMatchTheIntent() throws Exception {
+    void fallsBackWhenTheModelFunctionDoesNotMatchTheIntent() throws Exception {
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
         String draft = validDraft().replace("\"TRANSFER\"", "\"ACCOUNT_INQUIRY\"");
         mockResponse(restTemplate, structuredResponse(draft));
 
-        BusinessException exception = assertThrows(
-                BusinessException.class, () -> client(restTemplate, API_KEY).analyze(command("0.95")));
-
-        assertEquals(ErrorCode.LLM_ANALYSIS_FAILED, exception.getErrorCode());
+        assertConstrainedTransferFallback(client(restTemplate, API_KEY).analyze(command("0.95")));
     }
 
     @Test
-    void rejectsRequestedFunctionThatDoesNotMatchTheNextAction() throws Exception {
+    void fallsBackWhenTheModelFunctionDoesNotMatchTheNextAction() throws Exception {
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
         String draft = validDraft()
                 .replace("\"AWAITING_AMOUNT\"", "\"AWAITING_RECIPIENT\"")
@@ -242,10 +236,7 @@ class OpenAiVoiceTurnAnalysisClientTest {
                 .replace("TRANSFER_RECIPIENT_CANDIDATES", "TRANSFER_RISK_CHECK");
         mockResponse(restTemplate, structuredResponse(draft));
 
-        BusinessException exception = assertThrows(
-                BusinessException.class, () -> client(restTemplate, API_KEY).analyze(command("0.95")));
-
-        assertEquals(ErrorCode.LLM_ANALYSIS_FAILED, exception.getErrorCode());
+        assertConstrainedTransferFallback(client(restTemplate, API_KEY).analyze(command("0.95")));
     }
 
     @Test
@@ -331,18 +322,15 @@ class OpenAiVoiceTurnAnalysisClientTest {
     }
 
     @Test
-    void rejectsPostRiskPinActionFromTheAnalysisPort() throws Exception {
+    void fallsBackWithoutAllowingAPostRiskPinActionFromTheAnalysisPort() throws Exception {
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
         mockResponse(restTemplate, structuredResponse(pinRequestDraft()));
 
-        BusinessException exception = assertThrows(
-                BusinessException.class, () -> client(restTemplate, API_KEY).analyze(command("0.95")));
-
-        assertEquals(ErrorCode.LLM_ANALYSIS_FAILED, exception.getErrorCode());
+        assertConstrainedTransferFallback(client(restTemplate, API_KEY).analyze(command("0.95")));
     }
 
     @Test
-    void rejectsModelOutputContainingPresentationFields() throws Exception {
+    void fallsBackWhenTheModelOutputContainsPresentationFields() throws Exception {
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
         String draft = validDraft().replace(
                 "\"requestedFunction\": \"TRANSFER_RECIPIENT_CANDIDATES\"",
@@ -350,10 +338,7 @@ class OpenAiVoiceTurnAnalysisClientTest {
                         + "  \"requestedFunction\": \"TRANSFER_RECIPIENT_CANDIDATES\"");
         mockResponse(restTemplate, structuredResponse(draft));
 
-        BusinessException exception = assertThrows(
-                BusinessException.class, () -> client(restTemplate, API_KEY).analyze(command("0.95")));
-
-        assertEquals(ErrorCode.LLM_ANALYSIS_FAILED, exception.getErrorCode());
+        assertConstrainedTransferFallback(client(restTemplate, API_KEY).analyze(command("0.95")));
     }
 
     @Test
@@ -369,17 +354,14 @@ class OpenAiVoiceTurnAnalysisClientTest {
     }
 
     @Test
-    void rejectsMultipleAmountCandidatesWithoutReconfirming() throws Exception {
+    void fallsBackWhenMultipleAmountCandidatesAreNotReconfirmed() throws Exception {
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
         String draft = ambiguousAmountDraft()
                 .replace("\"RECONFIRMING\"", "\"AWAITING_AMOUNT\"")
                 .replace("\"RECONFIRM_INPUT\"", "\"ASK_AMOUNT\"");
         mockResponse(restTemplate, structuredResponse(draft));
 
-        BusinessException exception = assertThrows(
-                BusinessException.class, () -> client(restTemplate, API_KEY).analyze(command("0.95")));
-
-        assertEquals(ErrorCode.LLM_ANALYSIS_FAILED, exception.getErrorCode());
+        assertConstrainedTransferFallback(client(restTemplate, API_KEY).analyze(command("0.95")));
     }
 
     @Test
@@ -457,6 +439,16 @@ class OpenAiVoiceTurnAnalysisClientTest {
         BusinessException exception = assertThrows(BusinessException.class, () -> client.analyze(command));
 
         assertEquals(ErrorCode.INVALID_REQUEST, exception.getErrorCode());
+    }
+
+    private void assertConstrainedTransferFallback(VoiceTurnAnalysisResult result) {
+        assertEquals(DialogueStep.AWAITING_RECIPIENT, result.getNextStep());
+        assertEquals(VoiceIntent.TRANSFER, result.getIntent());
+        assertEquals(VoiceNextAction.ASK_RECIPIENT, result.getNextAction());
+        assertEquals(VoiceRequestedFunction.NONE, result.getRequestedFunction());
+        assertEquals("홍길동", result.getSlots().get("recipient"));
+        assertNull(result.getSlots().get("amount"));
+        assertEquals(List.of(300000L, 400000L), result.getSlots().get("amountCandidates"));
     }
 
     private JsonNode structuredResponse(String draft) throws Exception {

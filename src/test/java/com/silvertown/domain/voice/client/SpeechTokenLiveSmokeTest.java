@@ -70,7 +70,7 @@ class SpeechTokenLiveSmokeTest {
         assertTrue(OffsetDateTime.parse(expiresAt).isAfter(OffsetDateTime.now()));
 
         synthesizeWithIssuedToken(speechToken, region);
-        verifiesLiveVoiceTurnAnalysis(accessToken);
+        verifiesLiveTransferTextFallback(accessToken);
     }
 
     private String createDedicatedSmokeAccount() throws Exception {
@@ -211,9 +211,9 @@ class SpeechTokenLiveSmokeTest {
         }
     }
 
-    private void verifiesLiveVoiceTurnAnalysis(String accessToken) throws Exception {
+    private void verifiesLiveTransferTextFallback(String accessToken) throws Exception {
         ObjectNode sessionPayload = OBJECT_MAPPER.createObjectNode();
-        sessionPayload.put("entryPoint", "GENERAL_FINANCE");
+        sessionPayload.put("entryPoint", "TRANSFER");
         HttpResponse<String> sessionResponse = postJson("/api/voice/sessions", sessionPayload, accessToken);
         assertEquals(201, sessionResponse.statusCode());
         String sessionId = OBJECT_MAPPER.readTree(sessionResponse.body()).path("sessionId").asText();
@@ -221,9 +221,9 @@ class SpeechTokenLiveSmokeTest {
 
         ObjectNode turnPayload = OBJECT_MAPPER.createObjectNode();
         turnPayload.put("turnId", UUID.randomUUID().toString());
-        turnPayload.put("transcript", "계좌 잔액을 알려주세요");
+        turnPayload.put("transcript", "김철수에게 오만 원 보내줘");
         turnPayload.put("sttConfidence", 0.95);
-        turnPayload.put("inputType", "VOICE");
+        turnPayload.put("inputType", "TEXT");
         HttpResponse<String> turnResponse = postJson(
                 "/api/voice/sessions/" + sessionId + "/turns", turnPayload, accessToken);
         assertEquals(200, turnResponse.statusCode());
