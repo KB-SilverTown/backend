@@ -425,7 +425,7 @@ class VoiceStreamWebSocketHandlerTest {
     }
 
     @Test
-    void cleansUpTheInputTurnWhenVoiceAnalysisFails() throws Exception {
+    void sendsTheFinalTranscriptBeforeCleaningUpWhenVoiceAnalysisFails() throws Exception {
         WebSocketSession session = webSocketSession("websocket-1");
         ArgumentCaptor<AzureSpeechRecognitionListener> listener =
                 ArgumentCaptor.forClass(AzureSpeechRecognitionListener.class);
@@ -446,6 +446,7 @@ class VoiceStreamWebSocketHandlerTest {
         verify(voiceStreamLifecycleService).cancelInputStream(USER_ID, SESSION_ID, FIRST_TURN_ID, 0L);
         verify(stream, timeout(1_000)).stop();
         verify(stream, timeout(1_000)).close();
+        assertFinalTranscript(session, "분석할 발화");
         assertError(session, "LLM_ANALYSIS_FAILED", true);
     }
 
@@ -782,6 +783,19 @@ class VoiceStreamWebSocketHandlerTest {
                 .findFirst()
                 .orElseThrow();
         org.junit.jupiter.api.Assertions.assertEquals(retryable, payload.path("retryable").asBoolean());
+    }
+
+    private void assertFinalTranscript(WebSocketSession session, String text) throws Exception {
+        ArgumentCaptor<TextMessage> messages = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session, atLeastOnce()).sendMessage(messages.capture());
+
+        com.fasterxml.jackson.databind.JsonNode payload = messages.getAllValues().stream()
+                .map(message -> readJson(message.getPayload()))
+                .filter(message -> "FINAL_TRANSCRIPT".equals(message.path("type").asText()))
+                .findFirst()
+                .orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(FIRST_TURN_ID, payload.path("inputTurnId").asText());
+        org.junit.jupiter.api.Assertions.assertEquals(text, payload.path("text").asText());
     }
 
     private com.fasterxml.jackson.databind.JsonNode readJson(String payload) {
