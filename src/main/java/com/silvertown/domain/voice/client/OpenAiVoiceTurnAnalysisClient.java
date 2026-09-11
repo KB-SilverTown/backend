@@ -132,13 +132,11 @@ public class OpenAiVoiceTurnAnalysisClient implements VoiceTurnAnalysisPort {
             return safeReconfirm(command.getSttConfidence());
         }
 
-        JsonNode response;
         try {
-            response = requestAnalysis(command);
+            return parseAnalysis(requestAnalysis(command), command);
         } catch (BusinessException exception) {
             return localTransferFallback(command, exception);
         }
-        return parseAnalysis(response, command);
     }
 
     private JsonNode requestAnalysis(VoiceTurnAnalysisCommand command) {
