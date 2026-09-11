@@ -258,6 +258,37 @@ class VoiceSessionServiceImplTest {
         assertNull(response.getLatestReplayPayload());
     }
 
+    @Test
+    void handsOffPreparedTransferToManualConfirmationWithoutCancellingIt() {
+        VoiceSessionVo active = voiceSession(VoiceSessionStatus.SPEAKING, null);
+        active.setFlowType("TRANSFER");
+        active.setSttMode("BACKEND_STREAM");
+        active.setEntryPoint(VoiceSessionEntryPoint.TRANSFER.name());
+        active.setCurrentStep(DialogueStep.WAITING_FINAL_APPROVAL.name());
+        active.setTransferId("30000000-0000-0000-0000-000000000001");
+        VoiceSessionVo closed = voiceSession(VoiceSessionStatus.CLOSED,
+                LocalDateTime.of(2026, 9, 2, 10, 1));
+        closed.setFlowType("TRANSFER");
+        closed.setSttMode("BACKEND_STREAM");
+        closed.setEntryPoint(VoiceSessionEntryPoint.TRANSFER.name());
+        closed.setCurrentStep(DialogueStep.WAITING_FINAL_APPROVAL.name());
+        closed.setTransferId(active.getTransferId());
+        when(voiceSessionMapper.findOwnedById(USER_ID.toString(), SESSION_ID.toString()))
+                .thenReturn(active, closed);
+        when(dialogueTurnMapper.findLatestReplayableAiTurn(SESSION_ID.toString())).thenReturn(null);
+
+        VoiceSessionDetailResponse response = service.handoffToManualConfirmation(
+                USER_ID.toString(), SESSION_ID.toString());
+
+        verify(voiceSessionMapper).closeOwned(
+                eq(USER_ID.toString()), eq(SESSION_ID.toString()),
+                eq(DialogueStep.WAITING_FINAL_APPROVAL.name()), any(LocalDateTime.class));
+        verify(voiceInteractionCardMapper).deactivateActiveBySessionId(SESSION_ID.toString());
+        verify(voiceTransferOrchestrator, Mockito.never()).cancelUnexecuted(
+                eq(USER_ID), eq(UUID.fromString(active.getTransferId())));
+        assertEquals(VoiceSessionStatus.CLOSED, response.getStatus());
+    }
+
     private VoiceSessionCreateRequest request(String entryPoint) throws Exception {
         return objectMapper.readValue(
                 entryPoint == null ? "{}" : "{\"entryPoint\":\"" + entryPoint + "\"}",
