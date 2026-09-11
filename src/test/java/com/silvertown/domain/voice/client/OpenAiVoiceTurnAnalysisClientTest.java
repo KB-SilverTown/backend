@@ -2,6 +2,7 @@ package com.silvertown.domain.voice.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,6 +25,7 @@ import com.silvertown.global.common.exception.BusinessException;
 import com.silvertown.global.common.exception.ErrorCode;
 import java.math.BigDecimal;
 import java.net.URI;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -143,13 +145,35 @@ class OpenAiVoiceTurnAnalysisClientTest {
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
 
         BusinessException exception = assertThrows(
-                BusinessException.class, () -> client(restTemplate, " ").analyze(command("0.95")));
+                BusinessException.class,
+                () -> client(restTemplate, " ").analyze(generalFinanceCommand("금융 일정 알려줘")));
 
         assertEquals(ErrorCode.LLM_NOT_CONFIGURED, exception.getErrorCode());
     }
 
     @Test
-    void convertsOpenAiConnectionFailuresToTheCommonAnalysisError() {
+    void usesConstrainedTransferFallbackWhenOpenAiConnectionFails() {
+        RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
+        when(restTemplate.exchange(
+                        any(URI.class),
+                        eq(HttpMethod.POST),
+                        any(HttpEntity.class),
+                        eq(JsonNode.class)))
+                .thenThrow(new ResourceAccessException("timeout"));
+
+        VoiceTurnAnalysisResult result = client(restTemplate, API_KEY).analyze(command("0.95"));
+
+        assertEquals(DialogueStep.AWAITING_RECIPIENT, result.getNextStep());
+        assertEquals(VoiceIntent.TRANSFER, result.getIntent());
+        assertEquals(VoiceNextAction.ASK_RECIPIENT, result.getNextAction());
+        assertEquals(VoiceRequestedFunction.NONE, result.getRequestedFunction());
+        assertEquals("홍길동", result.getSlots().get("recipient"));
+        assertNull(result.getSlots().get("amount"));
+        assertEquals(List.of(300000L, 400000L), result.getSlots().get("amountCandidates"));
+    }
+
+    @Test
+    void doesNotUseTransferFallbackForGeneralFinanceConnectionFailures() {
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
         when(restTemplate.exchange(
                         any(URI.class),
@@ -159,7 +183,8 @@ class OpenAiVoiceTurnAnalysisClientTest {
                 .thenThrow(new ResourceAccessException("timeout"));
 
         BusinessException exception = assertThrows(
-                BusinessException.class, () -> client(restTemplate, API_KEY).analyze(command("0.95")));
+                BusinessException.class,
+                () -> client(restTemplate, API_KEY).analyze(generalFinanceCommand("금융 일정 알려줘")));
 
         assertEquals(ErrorCode.LLM_ANALYSIS_FAILED, exception.getErrorCode());
     }
