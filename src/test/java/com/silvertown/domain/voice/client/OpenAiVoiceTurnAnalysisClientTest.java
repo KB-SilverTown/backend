@@ -173,6 +173,38 @@ class OpenAiVoiceTurnAnalysisClientTest {
     }
 
     @Test
+    void keepsCollectingRecipientAndAmountFromTextWhenOpenAiConnectionFails() {
+        RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
+        when(restTemplate.exchange(
+                        any(URI.class),
+                        eq(HttpMethod.POST),
+                        any(HttpEntity.class),
+                        eq(JsonNode.class)))
+                .thenThrow(new ResourceAccessException("timeout"));
+        OpenAiVoiceTurnAnalysisClient client = client(restTemplate, API_KEY);
+
+        VoiceTurnAnalysisResult recipient = client.analyze(command(
+                VoiceFlowType.TRANSFER,
+                DialogueStep.AWAITING_RECIPIENT,
+                new BigDecimal("1.0"),
+                DialogueInputType.TEXT,
+                "김철수"));
+        VoiceTurnAnalysisResult amount = client.analyze(command(
+                VoiceFlowType.TRANSFER,
+                DialogueStep.AWAITING_AMOUNT,
+                new BigDecimal("1.0"),
+                DialogueInputType.TEXT,
+                "오만원"));
+
+        assertEquals("김철수", recipient.getSlots().get("recipient"));
+        assertEquals(VoiceNextAction.ASK_RECIPIENT, recipient.getNextAction());
+        assertEquals(DialogueStep.RECONFIRMING, amount.getNextStep());
+        assertEquals(VoiceNextAction.RECONFIRM_INPUT, amount.getNextAction());
+        assertEquals(50_000L, amount.getSlots().get("amount"));
+        assertEquals("AMOUNT_RECONFIRM", amount.getDisplayCard().path("type").asText());
+    }
+
+    @Test
     void doesNotUseTransferFallbackForGeneralFinanceConnectionFailures() {
         RestTemplate restTemplate = Mockito.mock(RestTemplate.class);
         when(restTemplate.exchange(
