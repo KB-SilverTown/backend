@@ -148,6 +148,36 @@ public class VoiceSessionServiceImpl implements VoiceSessionService {
         return toDetailResponse(voiceSession);
     }
 
+    @Override
+    @Transactional
+    public VoiceSessionDetailResponse handoffToManualConfirmation(String userId, String sessionId) {
+        VoiceSessionVo voiceSession = findOwnedAndExpireIfNeeded(userId, sessionId);
+        if (!isManualConfirmationHandoffEligible(voiceSession)) {
+            throw new BusinessException(ErrorCode.VOICE_TURN_CONFLICT);
+        }
+
+        voiceSessionMapper.closeOwned(
+                userId,
+                sessionId,
+                voiceSession.getCurrentStep(),
+                LocalDateTime.now(clock));
+        voiceInteractionCardMapper.deactivateActiveBySessionId(sessionId);
+        voiceGuidanceSettingsService.completeSession(
+                userId, voiceAdaptationSessionStateStore.stateOf(sessionId));
+        voiceAdaptationSessionStateStore.clear(sessionId);
+
+        return toDetailResponse(findOwnedAndExpireIfNeeded(userId, sessionId));
+    }
+
+    private boolean isManualConfirmationHandoffEligible(VoiceSessionVo voiceSession) {
+        VoiceSessionStatus status = VoiceSessionStatus.valueOf(voiceSession.getStatus());
+        return status != VoiceSessionStatus.CLOSED
+                && status != VoiceSessionStatus.EXPIRED
+                && VoiceFlowType.TRANSFER.name().equals(voiceSession.getFlowType())
+                && voiceSession.getTransferId() != null
+                && DialogueStep.WAITING_FINAL_APPROVAL.name().equals(voiceSession.getCurrentStep());
+    }
+
     private VoiceSessionEntryPoint requireEntryPoint(VoiceSessionCreateRequest request) {
         if (request.getEntryPoint() == null) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
