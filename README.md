@@ -11,17 +11,52 @@ flowchart LR
     U[사용자] --> FE[Vue 3 · Capacitor]
     FE -->|HTTPS / WSS| BE[Spring MVC Backend]
     BE --> DB[(MySQL)]
-    BE --> AI[OpenAI OCR · Azure Speech]
+    BE --> AI[OpenAI · Azure Speech]
     BE --> EXT[Firebase · Redis]
 ```
 
 | 영역 | 제공 기능 |
 | --- | --- |
 | 사용자·계좌 | 회원가입/로그인, JWT 인증, 내 정보와 계좌 조회 |
-| 음성 금융 | 음성 세션·대화 턴 관리, 텍스트/카드 대체 입력, 사용자 음성 설정 |
+| 음성 금융 | 음성 세션·대화 턴 관리, 입력 경로 분리, 텍스트/카드 대체 입력, 사용자 음성 설정 |
 | 안심 송금 | 수취인 후보 선택, 금액 재확인, Risk Score, 보호자 검증, PIN, 멱등 실행 |
 | 생활 금융 | 고지서 OCR 분석·납부 흐름, 리마인더 CRUD, 이동점포 조회 |
 | 알림·연동 | Redis Streams 기반 알림 파이프라인, Firebase Cloud Messaging, Azure Speech WebSocket |
+
+## 음성 입력 경로
+
+음성 세션을 만들 때 진입점에 따라 `sttMode`를 확정하며, 세션 진행 중에는 입력 경로를 바꾸지 않습니다. 조회·생활 금융처럼 편의성이 중심인 흐름과, 금전 실행으로 이어질 수 있는 송금 흐름을 같은 방식으로 처리하지 않는 구조입니다.
+
+| 구분 | 세션 진입점 / 모드 | 입력 처리 | 서버의 역할 |
+| --- | --- | --- | --- |
+| 일반 금융·고지서 | `GENERAL_FINANCE`, `BILL_PAYMENT` / `CLIENT` | Capacitor 음성 인식 또는 브라우저 Web Speech API가 전사문과 신뢰도를 만들고, HTTPS `POST /api/voice/sessions/{sessionId}/turns`로 전달 | 대화 턴을 저장하고, 의도·슬롯 분석 및 계좌·고지서·이동점포 응답을 조합해 카드와 안내 문구를 반환 |
+| 송금 음성 | `TRANSFER` / `BACKEND_STREAM` | 프런트가 16 kHz·16-bit·모노 PCM 프레임에 순번을 붙여 WSS로 전달 | 스트림 티켓·세션을 검증하고 Azure Speech의 최종 인식 결과를 직접 받아 송금 대화 상태를 진행 |
+| 텍스트 대체 입력 | 모든 음성 세션 | 키보드 입력과 카드 선택을 REST로 전달 | 음성 인식이 어려운 경우에도 동일한 대화·송금 확인 절차를 유지 |
+
+```mermaid
+flowchart TD
+    S[음성 세션 생성] --> E{진입점}
+    E -->|GENERAL_FINANCE / BILL_PAYMENT| C[CLIENT]
+    E -->|TRANSFER| B[BACKEND_STREAM]
+
+    C --> C1[기기·브라우저 STT]
+    C1 --> C2[전사문 + 신뢰도]
+    C2 --> C3[HTTPS /turns]
+
+    B --> B1[1회용 스트림 티켓 발급]
+    B1 --> B2[WSS 연결]
+    B2 --> B3[순번이 포함된 PCM 전송]
+    B3 --> B4[서버 → Azure Streaming STT]
+    B4 --> B5[서버가 최종 인식 결과 처리]
+
+    C3 --> R[대화 상태·카드·안내 응답]
+    B5 --> R
+    T[텍스트·카드 선택] --> R
+```
+
+- `CLIENT`는 STT 결과를 대화 입력으로 전달하는 경로입니다. 음성 결과가 애매하면 서버가 재질문·재확인을 요청하며, 중요한 금융 실행 권한으로 직접 사용하지 않습니다.
+- `BACKEND_STREAM`에서는 송금용 음성 전사문을 프런트가 임의 REST 요청으로 제출해 처리할 수 없습니다. 서버가 Azure Speech의 최종 결과를 받고, 이후의 수취인·금액 확인 흐름으로만 연결합니다.
+- 두 경로 모두 서버가 `ttsText`·`ttsSsml`을 응답합니다. 프런트는 단기 Azure Speech 토큰으로 TTS를 재생하고, 사용할 수 없을 때는 브라우저 음성 합성으로 대체합니다.
 
 ## 송금 안전 흐름
 
@@ -50,9 +85,9 @@ sequenceDiagram
     BE-->>FE: 실행 결과
 ```
 
-- 송금 음성은 프런트가 전사문을 신뢰 가능한 금융 입력으로 전달하는 방식이 아니라, 백엔드가 Azure Speech의 최종 결과를 직접 받는 `BACKEND_STREAM` 경로를 사용합니다.
-- 스트림 티켓은 사용자·세션에 결합되며, 짧은 만료 시간과 1회 사용 규칙으로 재사용을 제한합니다. 티켓 자체는 송금 승인 권한이 아닙니다.
-- 인식 결과 뒤에도 수취인 후보 선택, 금액 확인, Risk Score, 보호자 확인(필요 시), PIN, confirmation token 및 멱등성 검증을 통과해야 거래가 실행됩니다.
+- 송금 WebSocket은 `TRANSFER`·`BACKEND_STREAM` 세션에만 열립니다. 스트림 티켓은 사용자·세션에 결합되며, 60초 만료와 1회 사용 규칙으로 재사용을 제한합니다. 티켓 자체는 송금 승인 권한이 아닙니다.
+- 오디오 전송은 `START_ACK` 이후에만 시작하고, 프레임 순번·크기와 종료 이후 입력을 서버가 검증합니다. 재연결과 늦게 도착한 STT 결과도 세션 상태로 관리합니다.
+- 인식 결과 뒤에도 수취인 후보 선택, 금액 확인, Risk Score, 보호자 확인(필요 시), PIN, confirmation token 및 멱등성 검증을 통과해야 거래가 실행됩니다. 음성이 어려우면 스트림을 정리한 뒤 텍스트·카드 선택으로 같은 확인 절차를 이어갈 수 있습니다.
 
 ## 기술 스택
 
@@ -62,8 +97,8 @@ sequenceDiagram
 | Web | Spring Framework 5.3, Spring MVC, Spring Security |
 | Data | MyBatis, MySQL, HikariCP |
 | Authentication | JWT, OAuth2 Client |
-| Real-time Voice | Spring WebSocket, Azure Speech SDK |
-| AI / External | OpenAI API (고지서 OCR 분석), Firebase Admin SDK, Redis Streams |
+| Real-time Voice | Spring WebSocket, Azure Speech SDK, Capacitor Speech Recognition, Web Speech API |
+| AI / External | OpenAI API (음성 대화 분석·고지서 OCR), Firebase Admin SDK, Redis Streams |
 | API Docs | Swagger 2 / Springfox |
 | Build / Deploy | Gradle, WAR, Tomcat 9, Docker, Railway |
 | Test | JUnit 5, Mockito, H2 |
@@ -77,15 +112,16 @@ src
 └── main
     ├── java/com/silvertown
     │   ├── global/        # 보안, 예외 처리, Web/Root 설정, 공통 응답
-    │   ├── auth/          # 인증·JWT
-    │   ├── account/       # 계좌·사용자 정보
-    │   ├── recipient/     # 수취인 후보
-    │   ├── transfer/      # 송금·PIN·보호자 검증·멱등성
-    │   ├── risk/          # 송금 위험 신호 평가
-    │   ├── voice/         # 음성 세션·STT 스트리밍·적응형 안내
-    │   ├── bill/          # 고지서 OCR·납부
-    │   ├── reminder/      # 리마인더
-    │   └── mobilebranch/  # 이동점포 조회
+    │   └── domain/
+    │       ├── auth/          # 인증·JWT
+    │       ├── account/       # 계좌·사용자 정보
+    │       ├── recipient/     # 수취인 후보
+    │       ├── transfer/      # 송금·PIN·보호자 검증·멱등성
+    │       ├── risk/          # 송금 위험 신호 평가
+    │       ├── voice/         # 음성 세션·STT 스트리밍·적응형 안내
+    │       ├── bill/          # 고지서 OCR·납부
+    │       ├── reminder/      # 리마인더
+    │       └── mobilebranch/  # 이동점포 조회
     └── resources
         ├── mapper/        # MyBatis SQL Mapper XML
         └── application.properties
@@ -151,10 +187,10 @@ docker run --rm -p 8080:8080 --env-file .env silvertown-backend
 | 사용자·계좌 | `/api/users/me`, `/api/accounts` |
 | 수취인·송금 | `/api/recipients/candidates`, `/api/transfers/**` |
 | 고지서·리마인더 | `/api/bills/**`, `/api/reminders/**` |
-| 음성 | `/api/voice/**`, `/api/users/me/voice-settings` |
+| 음성 | `/api/voice/**`, `/api/voice/sessions/{sessionId}/stream` (WSS), `/api/users/me/voice-settings` |
 | 이동점포 | `/api/mobile-branches/nearby` |
 
-송금 음성 스트림은 세션별 스트림 티켓을 발급받은 뒤 WebSocket으로 연결합니다. 세부 메시지 형식과 보안 정책은 Swagger 및 소스 구현을 기준으로 확인할 수 있습니다.
+송금 음성 스트림은 세션별 스트림 티켓을 발급받은 뒤 WebSocket으로 연결합니다. WebSocket 메시지 형식과 보안 정책은 Swagger 대상이 아니므로 소스 구현을 기준으로 확인합니다.
 
 ## 테스트
 
