@@ -100,25 +100,20 @@ src
 - Tomcat 9.x (로컬 WAR 배포 시)
 - 선택: Docker
 
-### 1. 데이터베이스 준비
+### 1. 환경 설정
 
-공유된 DDL로 로컬 MySQL 스키마를 생성합니다. 데이터베이스 접속 정보와 외부 서비스 키는 버전 관리되지 않는 `src/main/resources/application-local.properties` 또는 운영 환경 변수로 설정합니다.
+MySQL 데이터베이스를 준비한 뒤, DB 연결 정보와 외부 서비스 설정을 환경에 주입합니다. 로컬 개발에서는 `src/main/resources/application-local.properties`와 `.env`를 사용하고, 배포 환경에서는 플랫폼의 환경 변수를 사용합니다.
 
-필수 설정값은 환경에 따라 다르며, 실제 값은 팀의 보안 채널에서만 관리합니다.
-
-| 범주 | 예시 설정 |
+| 범주 | 설정 항목 |
 | --- | --- |
-| DB | `db.url`, `db.username`, `db.password` |
-| 인증·암호화 | `JWT_SECRET`, `ACCOUNT_CRYPTO_KEY`, `GUARDIAN_VERIFICATION_HMAC_SECRET` |
-| 음성·AI | Azure Speech key/region, `OPENAI_API_KEY` |
-| 알림 | Redis, Firebase 설정 |
-| 운영 정책 | 허용 Origin, 위험 차단 목록, 데모용 보호자 설정 |
+| DB | URL, 사용자명, 비밀번호 |
+| 인증·암호화 | JWT, 계좌정보 암호화 키, 보호자 검증 키 |
+| 음성·AI | Azure Speech, OpenAI |
+| 알림 | Redis, Firebase |
 
-`.env`, `application-local.properties`, 인증 키·토큰·실제 계좌 데이터는 저장소에 커밋하지 않습니다.
+`.env`, `application-local.properties`, 키·토큰·개인정보는 저장소에 포함하지 않습니다.
 
 ### 2. 테스트와 WAR 빌드
-
-Windows PowerShell 기준입니다.
 
 ```powershell
 .\gradlew.bat test
@@ -135,7 +130,7 @@ Windows PowerShell 기준입니다.
 http://localhost:8080/swagger-ui.html
 ```
 
-인증이 필요한 API는 먼저 로그인 후 발급받은 JWT를 사용합니다. 실제 요청·응답 계약은 Swagger 및 프런트엔드와 합의한 명세를 기준으로 합니다.
+인증이 필요한 API는 로그인 후 발급받은 JWT를 사용합니다. 세부 요청·응답 계약은 Swagger UI를 기준으로 확인할 수 있습니다.
 
 ## Docker 실행
 
@@ -146,7 +141,7 @@ docker build -t silvertown-backend .
 docker run --rm -p 8080:8080 --env-file .env silvertown-backend
 ```
 
-운영 환경에서는 Railway의 Secret/환경 변수에 민감한 설정을 주입하며, `.env` 파일을 이미지나 저장소에 포함하지 않습니다.
+배포 환경에서는 환경 변수로 민감한 설정을 주입하며, `.env` 파일을 이미지나 저장소에 포함하지 않습니다.
 
 ## 주요 API 영역
 
@@ -159,19 +154,12 @@ docker run --rm -p 8080:8080 --env-file .env silvertown-backend
 | 음성 | `/api/voice/**`, `/api/users/me/voice-settings` |
 | 이동점포 | `/api/mobile-branches/nearby` |
 
-송금 음성 스트림은 세션별 스트림 티켓을 발급받은 뒤 WebSocket으로 연결합니다. 경로·메시지 형식·보안 정책은 변경될 수 있으므로 구현과 Swagger/팀 API 명세를 함께 확인해야 합니다.
+송금 음성 스트림은 세션별 스트림 티켓을 발급받은 뒤 WebSocket으로 연결합니다. 세부 메시지 형식과 보안 정책은 Swagger 및 소스 구현을 기준으로 확인할 수 있습니다.
 
-## 테스트 원칙
+## 테스트
 
 - 컨트롤러·서비스·Mapper·음성 스트림의 단위 및 통합 테스트를 JUnit 5 기반으로 작성합니다.
 - 계좌·송금 상태처럼 금전적 결과에 연결되는 로직은 멱등성, 상태 전이, 권한 검증을 우선 확인합니다.
-- 실제 Azure, Firebase, Railway, MySQL을 모두 포함한 운영 환경 E2E는 별도 환경 설정이 필요합니다.
-
-## MVP 범위와 유의 사항
-
-- 송금 실행은 해커톤 MVP의 DB 기반 거래 흐름 검증에 초점을 둡니다. 실제 은행망 이체에는 금융 API 제휴와 추가 인증·감사·보안 요건이 필요합니다.
-- 외부 AI·음성 서비스 사용 시 실제 서비스 전환 전 데이터 최소화, 보존 기간, 사용자 동의 및 공급자 계약을 별도로 검토해야 합니다.
-- 음성 입력이 어려운 상황을 위해 텍스트 입력과 화면 카드 선택을 함께 제공하는 것을 서비스 원칙으로 둡니다.
 
 ## Backend Team
 
